@@ -178,6 +178,10 @@ export class Accessory extends EventEmitter<Events> {
       .setCharacteristic(Characteristic.SerialNumber, "Default-SerialNumber")
       .setCharacteristic(Characteristic.FirmwareRevision, "1.0");
 
+    this
+        .addService(Service.ProtocolInformation)
+        .setCharacteristic(Characteristic.Version, "1.1.0");
+
     // sign up for when iOS attempts to "set" the Identify characteristic - this means a paired device wishes
     // for us to identify ourselves (as opposed to an unpaired device - that case is handled by HAPServer 'identify' event)
     this.getService(Service.AccessoryInformation)!
