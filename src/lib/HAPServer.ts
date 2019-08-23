@@ -745,8 +745,7 @@ export class HAPServer extends EventEmitter<Events> {
     const objects = tlv.decode(requestData);
     const method = objects[TLVValues.METHOD][0]; // value is single byte with request type
 
-    // validate that request sender has admin bit set
-    const state = objects[TLVValues.STATE][0]; // assert Methods.PAIR WITH_AUTH
+    const state = objects[TLVValues.STATE][0]; // assert State.M1
 
     if (method === Methods.ADD_PAIRING) {
       const identifier = objects[TLVValues.IDENTIFIER].toString();
@@ -755,7 +754,8 @@ export class HAPServer extends EventEmitter<Events> {
 
       debug("[%s] Controller %s is going to add:" +
           "\nController: %s" +
-          "\nPermission: %d", this.accessoryInfo.username, identifier, permissions);
+          "\nPermission: %d" +
+          "\nIN TLV8: %s", this.accessoryInfo.username, identifier, permissions, JSON.stringify(objects));
 
       this.emit(HAPServerEventTypes.ADD_PAIRING, session.sessionID, identifier, publicKey, permissions, once((errorCode: number, data?: void) => {
         if (errorCode > 0) {
@@ -807,13 +807,12 @@ export class HAPServer extends EventEmitter<Events> {
           );
         });
 
+        const list = tlv.encode(TLVValues.STATE, State.M2, ...tlvList);
         debug("[%s] Listing pairings:" +
             "\nLength: %d" +
             "\nPairingInformationArray: %s" +
             "\nTLV Length: %d" +
-            "\nTLV: %s", this.accessoryInfo.username, data!.length, JSON.stringify(data!), tlvList.length, tlvList.toString());
-
-        const list = tlv.encode(TLVValues.STATE, State.M2, ...tlvList);
+            "\nTLV: %s", this.accessoryInfo.username, data!.length, JSON.stringify(data!), tlvList.length, list.toString());
         response.writeHead(200, {"Content-Type": "application/pairing#tlv8"});
         response.end(list);
         debug("[%s] Pairings: successfully executed LIST_PAIRINGS", this.accessoryInfo.username);
