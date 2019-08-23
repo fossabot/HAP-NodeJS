@@ -55,9 +55,9 @@ export class Advertiser {
      * of having multiple pi's on same network
      */
     var host = this.accessoryInfo.username.replace(/\:/ig, "_") + '.local';
-    var advertiseName = this.accessoryInfo.displayName
-      + "-"
-      + crypto.createHash('sha512').update(this.accessoryInfo.username, 'utf8').digest('hex').slice(0, 4).toUpperCase();
+    var advertiseName = this.accessoryInfo.displayName;
+      //+ "-"
+      //+ crypto.createHash('sha512').update(this.accessoryInfo.username, 'utf8').digest('hex').slice(0, 4).toUpperCase();
 
     // create/recreate our advertisement
     this._advertisement = this._bonjourService.publish({
