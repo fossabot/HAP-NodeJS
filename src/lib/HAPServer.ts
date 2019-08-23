@@ -795,7 +795,7 @@ export class HAPServer extends EventEmitter<Events> {
         if (errorCode > 0) {
           debug("[%s] Pairings: failed LIST_PAIRINGS with code %d", this.accessoryInfo.username, errorCode);
           response.writeHead(400, {"Content-Type": "application/pairing+tlv8"});
-          response.end(tlv.encode(TLVValues.STATE, TLVValues.ERROR, errorCode));
+          response.end(tlv.encode(TLVValues.STATE, State.M2, TLVValues.ERROR, errorCode));
           return;
         }
 
