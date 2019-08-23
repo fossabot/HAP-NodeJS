@@ -4,6 +4,7 @@ import tweetnacl from 'tweetnacl';
 import bufferShim from 'buffer-shims';
 
 import {Categories} from '../Accessory';
+import {Session} from "../util/eventedhttp";
 
 export type PairingInformation = {
   username: string,
@@ -23,6 +24,7 @@ export class AccessoryInfo {
   signSk: any;
   signPk: any;
   pairedClients: Record<string, PairingInformation>;
+  pairedAdminClients: number = 0;
   configVersion: number;
   configHash: string;
   setupID: string;
@@ -67,12 +69,23 @@ export class AccessoryInfo {
       publicKey: publicKey,
       permission: permission
     };
+
+    if (permission === 0x01)
+      this.pairedAdminClients++;
   };
 
   updatePermission = (username: string, permission: number) => {
     const pairingInformation = this.pairedClients[username];
-    if (pairingInformation)
+    if (pairingInformation) {
+      const oldPermission = pairingInformation.permission;
       pairingInformation.permission = permission;
+
+      if (oldPermission === 0x01 && permission !== 0x01) {
+        this.pairedAdminClients--;
+      } else if (oldPermission !== 0x01 && permission === 0x01) {
+        this.pairedAdminClients++;
+      }
+    }
   };
 
   listPairings = () => {
@@ -91,6 +104,18 @@ export class AccessoryInfo {
    * @param {string} username
    */
   removePairedClient = (username: string) => {
+    this._removePairedClient(username);
+
+    if (this.pairedAdminClients === 0) { // if we don't have any admin clients left paired it is required to kill all normal clients
+      for (const username0 in this.pairedClients) {
+        this.removePairedClient(username0);
+      }
+    }
+  };
+
+  _removePairedClient = (username: string) => {
+    if (this.pairedClients[username] && this.pairedClients[username].permission === 0x01)
+      this.pairedAdminClients--;
     delete this.pairedClients[username];
 
     if (Object.keys(this.pairedClients).length == 0) {
@@ -100,6 +125,14 @@ export class AccessoryInfo {
       this.relayAdminID = "";
       this.relayPairedControllers = {};
       this.accessoryBagURL = "";
+    }
+
+    const existingSession = Session.sessions[username];
+    if (existingSession) {
+      existingSession.encryption = undefined; // remove any authentication
+      setTimeout(() => { // delay connection destroy a bit (we have a maximum of 5 seconds
+        existingSession.destroyConnection();
+      }, 2000);
     }
   };
 
@@ -226,12 +259,18 @@ export class AccessoryInfo {
             publicKey: bufferShim.from(pairingInformation.publicKey, 'hex'),
             permission: pairingInformation.permission
           };
+
+          if (pairingInformation.permission === 0x01) {
+            info.pairedAdminClients++;
+          }
         } else {
           info.pairedClients[username] = {
             username: username,
             publicKey: bufferShim.from(pairingInformation, 'hex'), // migrate from old storage
             permission: 0x01 // best is probably to assume admin permissions
           }
+
+          info.pairedAdminClients++;
         }
       }
 

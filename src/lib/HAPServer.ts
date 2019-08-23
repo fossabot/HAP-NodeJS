@@ -732,8 +732,8 @@ export class HAPServer extends EventEmitter<Events> {
   _handlePairings = (request: IncomingMessage, response: ServerResponse, session: Session, events: any, requestData: Buffer) => {
     // Only accept /pairing request if there is a secure session
     if (!this.allowInsecureRequest && !session.encryption) {
-      response.writeHead(470, {"Content-Type": "application/pairing+tlv8"});
-      response.end(tlv.encode(TLVValues.STATE, State.M2, TLVValues.ERROR, Codes.AUTHENTICATION));
+      response.writeHead(401, {"Content-Type": "application/hap+json"});
+      response.end(JSON.stringify({status: Status.INSUFFICIENT_PRIVILEGES}));
       return;
     }
 
@@ -781,10 +781,6 @@ export class HAPServer extends EventEmitter<Events> {
         response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
         response.end(tlv.encode(TLVValues.STATE, State.M2));
         debug("[%s] Pairings: successfully executed REMOVE_PAIRING", this.accessoryInfo.username);
-
-        const existingSession = Session.sessions[identifier];
-        if (existingSession)
-          existingSession.destroyConnection();
       }));
     } else if (method === Methods.LIST_PAIRINGS) {
       this.emit(HAPServerEventTypes.LIST_PAIRINGS, session.username, once((errorCode: number, data?: PairingInformation[]) => {
