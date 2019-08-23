@@ -9,13 +9,13 @@ import url from 'url';
 import * as encryption from './util/encryption';
 import * as hkdf from './util/hkdf';
 import * as tlv from './util/tlv';
-import { EventedHTTPServer, EventedHTTPServerEvents } from './util/eventedhttp';
-import { once } from './util/once';
-import { IncomingMessage, ServerResponse } from "http";
-import { Characteristic } from './Characteristic';
-import { Accessory, CharacteristicEvents, Resource } from './Accessory';
-import { CharacteristicData, NodeCallback, SessionIdentifier, VoidCallback } from '../types';
-import { EventEmitter } from './EventEmitter';
+import {EventedHTTPServer, EventedHTTPServerEvents} from './util/eventedhttp';
+import {once} from './util/once';
+import {IncomingMessage, ServerResponse} from "http";
+import {Characteristic} from './Characteristic';
+import {Accessory, CharacteristicEvents, Resource} from './Accessory';
+import {CharacteristicData, NodeCallback, SessionIdentifier, VoidCallback} from '../types';
+import {EventEmitter} from './EventEmitter';
 
 const debug = createDebug('HAPServer');
 
@@ -44,13 +44,14 @@ export enum Status {
   INSUFFICIENT_PRIVILEGES = -70401,
   SERVICE_COMMUNICATION_FAILURE = -70402,
   RESOURCE_BUSY = -70403,
-  READ_ONLY_CHARACTERISTIC = -70404,
-  WRITE_ONLY_CHARACTERISTIC = -70405,
+  READ_ONLY_CHARACTERISTIC = -70404, // cannot write to read only characteristic
+  WRITE_ONLY_CHARACTERISTIC = -70405, // cannot read from write only characteristic
   NOTIFICATION_NOT_SUPPORTED = -70406,
   OUT_OF_RESOURCE = -70407,
   OPERATION_TIMED_OUT = -70408,
   RESOURCE_DOES_NOT_EXIST = -70409,
-  INVALID_VALUE_IN_REQUEST = -70410
+  INVALID_VALUE_IN_REQUEST = -70410, // invalid value in WRITE request
+  INSUFFICIENT_AUTHORIZATION = -70411
 }
 
 export type Session = {
@@ -73,6 +74,16 @@ export type RemoteSession = {
 export type HapRequest = {
   messageType: HapRequestMessageTypes
   requestBody: any;
+}
+
+export type CharacteristicsWriteRequest = {
+  characteristics: CharacteristicData[],
+  pid?: number
+}
+
+export type PrepareWriteRequest = {
+  ttl: number,
+  pid: number
 }
 
 export enum HAPServerEventTypes {
@@ -181,6 +192,7 @@ export class HAPServer extends EventEmitter<Events> {
     '/pairings': '_handlePairings',
     '/accessories': '_handleAccessories',
     '/characteristics': '_handleCharacteristics',
+    '/prepare': '_prepareWrite',
     '/resource': '_handleResource'
   };
 
@@ -189,6 +201,8 @@ export class HAPServer extends EventEmitter<Events> {
 
   allowInsecureRequest: boolean;
   _keepAliveTimerID: NodeJS.Timeout;
+
+  _timedWrites: Record<number, NodeJS.Timeout> = {};
 
   constructor(public accessoryInfo: any, public relayServer?: any) {
     super();
@@ -823,7 +837,24 @@ export class HAPServer extends EventEmitter<Events> {
         return;
       }
       // requestData is a JSON payload like { characteristics: [ { aid: 1, iid: 8, value: true, ev: true } ] }
-      var data = JSON.parse(requestData.toString()).characteristics as CharacteristicData[]; // pull out characteristics array
+      var writeRequest = JSON.parse(requestData.toString()) as CharacteristicsWriteRequest;
+      var data = writeRequest.characteristics; // pull out characteristics array
+
+      if (writeRequest.pid) { // check for timed writes
+        const timeout = this._timedWrites[writeRequest.pid];
+
+        if (timeout) {
+          clearTimeout(timeout);
+          delete this._timedWrites[writeRequest.pid];
+        } else {
+          // TODO also deny standard write requests to characteristics which require timed write requests
+
+          response.writeHead(400, {"Content-Type": "application/hap+json"});
+          response.end(JSON.stringify({status: Status.INVALID_VALUE_IN_REQUEST}));
+          return;
+        }
+      }
+
       // call out to listeners to retrieve the latest accessories JSON
       this.emit(HAPServerEventTypes.SET_CHARACTERISTICS, data, events, once((err: Error, characteristics: Characteristic[]) => {
         if (err) {
@@ -839,12 +870,43 @@ export class HAPServer extends EventEmitter<Events> {
             });
           }
         }
+        // TODO response with 204 No Content if write was successful (on all characteristics)
+
         // 207 is "multi-status" since HomeKit may be setting multiple things and any one can fail independently
         response.writeHead(207, {"Content-Type": "application/hap+json"});
         response.end(JSON.stringify({characteristics: characteristics}));
       }), false, session.sessionID);
     }
   }
+
+  // Called when controller requests a timed write
+  _prepareWrite = (request: IncomingMessage, response: ServerResponse, session: Session, events: any, requestData: { length: number; toString: () => string; }) => {
+    if (!this.allowInsecureRequest && !session.encryption) {
+      response.writeHead(401, {"Content-Type": "application/hap+json"});
+      response.end(JSON.stringify({status: Status.INSUFFICIENT_PRIVILEGES}));
+      return;
+    }
+
+    if (request.method == "PUT") {
+      if (requestData.length == 0) {
+        response.writeHead(400, {"Content-Type": "application/hap+json"});
+        response.end(JSON.stringify({status: Status.INVALID_VALUE_IN_REQUEST}));
+        return;
+      }
+
+      const data = JSON.parse(requestData.toString()) as PrepareWriteRequest;
+
+      if (data.pid && data.ttl) {
+        this._timedWrites[data.pid] = setTimeout(() => {
+          delete this._timedWrites[data.pid];
+        }, data.ttl);
+
+        response.writeHead(200, {"Content-Type": "application/hap+json"});
+        response.end(JSON.stringify({status: Status.SUCCESS}));
+        return;
+      }
+    }
+  };
 
   // Called when controller request snapshot
   _handleResource = (request: IncomingMessage, response: ServerResponse, session: Session, events: any, requestData: { length: number; toString: () => string; }) => {
