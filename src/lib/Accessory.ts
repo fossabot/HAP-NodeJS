@@ -595,6 +595,12 @@ export class Accessory extends EventEmitter<Events> {
     // attempt to load existing AccessoryInfo from disk
     this._accessoryInfo = AccessoryInfo.load(info.username);
 
+    this.displayName = this.displayName
+        + "-"
+        + crypto.createHash('sha512').update(info.username, 'utf8').digest('hex').slice(0, 4).toUpperCase();
+
+    this.getService(Service.AccessoryInformation)!.setCharacteristic(Characteristic.Name, this.displayName);
+
     // if we don't have one, create a new one.
     if (!this._accessoryInfo) {
       debug("[%s] Creating new AccessoryInfo for our HAP server", this.displayName);
