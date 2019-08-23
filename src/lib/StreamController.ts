@@ -828,6 +828,7 @@ export class StreamController {
 
     this.setupResponse = responseTLV.toString('base64');
     callback();
+    this.service && this.service.getCharacteristic(Characteristic.SetupEndpoints)!.getValue();
   }
 
   _updateStreamStatus = (status: number) => {
