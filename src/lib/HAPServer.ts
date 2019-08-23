@@ -755,6 +755,7 @@ export class HAPServer extends EventEmitter<Events> {
 
       this.emit(HAPServerEventTypes.ADD_PAIRING, session.sessionID, identifier, publicKey, permissions, once((errorCode: number, data?: void) => {
         if (errorCode > 0) {
+          debug("[%s] Pairings: failed ADD_PAIRING with code %d", this.accessoryInfo.username, errorCode);
           response.writeHead(400, {"Content-Type": "application/pairing+tlv8"});
           response.end(tlv.encode(TLVValues.STATE, State.M2, TLVValues.ERROR, errorCode));
           return;
@@ -762,12 +763,14 @@ export class HAPServer extends EventEmitter<Events> {
 
         response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
         response.end(tlv.encode(TLVValues.STATE, State.M2));
+        debug("[%s] Pairings: successfully executed ADD_PAIRING", this.accessoryInfo.username);
       }));
     } else if (method === Methods.REMOVE_PAIRING) {
       const identifier = objects[TLVValues.IDENTIFIER].toString();
 
       this.emit(HAPServerEventTypes.REMOVE_PAIRING, session.sessionID, identifier, once((errorCode: number, data?: void) => {
         if (errorCode > 0) {
+          debug("[%s] Pairings: failed REMOVE_PAIRING with code %d", this.accessoryInfo.username, errorCode);
           response.writeHead(400, {"Content-Type": "application/pairing+tlv8"});
           response.end(tlv.encode(TLVValues.STATE, State.M2, TLVValues.ERROR, errorCode));
           return;
@@ -775,11 +778,13 @@ export class HAPServer extends EventEmitter<Events> {
 
         response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
         response.end(tlv.encode(TLVValues.STATE, State.M2));
+        debug("[%s] Pairings: successfully executed REMOVE_PAIRING", this.accessoryInfo.username);
         // TODO if sessionID === identifier suspend session immediately; tear down connections to removed pairing
       }));
     } else if (method === Methods.LIST_PAIRINGS) {
       this.emit(HAPServerEventTypes.LIST_PAIRINGS, session.sessionID, once((errorCode: number, data?: PairingInformation[]) => {
         if (errorCode > 0) {
+          debug("[%s] Pairings: failed LIST_PAIRINGS with code %d", this.accessoryInfo.username, errorCode);
           response.writeHead(400, {"Content-Type": "application/pairing+tlv8"});
           response.end(tlv.encode(TLVValues.STATE, TLVValues.ERROR, errorCode));
           return;
@@ -800,6 +805,7 @@ export class HAPServer extends EventEmitter<Events> {
 
         response.writeHead(200, {"Content-Type": "application/pairing#tlv8"});
         response.end(tlv.encode(TLVValues.STATE, State.M2, ...tlvList));
+        debug("[%s] Pairings: successfully executed LIST_PAIRINGS", this.accessoryInfo.username);
       }));
     }
   };
