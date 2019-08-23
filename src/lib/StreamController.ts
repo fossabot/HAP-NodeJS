@@ -828,7 +828,9 @@ export class StreamController {
 
     this.setupResponse = responseTLV.toString('base64');
     callback();
-    this.service && this.service.getCharacteristic(Characteristic.SetupEndpoints)!.getValue();
+    setTimeout(() => {
+      this.service && this.service.getCharacteristic(Characteristic.SetupEndpoints)!.getValue();
+    }, 10);
   }
 
   _updateStreamStatus = (status: number) => {
