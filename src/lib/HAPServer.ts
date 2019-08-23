@@ -755,7 +755,7 @@ export class HAPServer extends EventEmitter<Events> {
       debug("[%s] Controller %s is going to add:" +
           "\nController: %s" +
           "\nPermission: %d" +
-          "\nIN TLV8: %s", this.accessoryInfo.username, identifier, permissions, JSON.stringify(objects));
+          "\nIN TLV8: %s", this.accessoryInfo.username, session.sessionID, identifier, permissions, JSON.stringify(objects));
 
       this.emit(HAPServerEventTypes.ADD_PAIRING, session.sessionID, identifier, publicKey, permissions, once((errorCode: number, data?: void) => {
         if (errorCode > 0) {
@@ -812,7 +812,7 @@ export class HAPServer extends EventEmitter<Events> {
             "\nLength: %d" +
             "\nPairingInformationArray: %s" +
             "\nTLV Length: %d" +
-            "\nTLV: %s", this.accessoryInfo.username, data!.length, JSON.stringify(data!), tlvList.length, list.toString());
+            "\nTLV List: %s", this.accessoryInfo.username, data!.length, JSON.stringify(data!), tlvList.length, JSON.stringify(tlvList));
         response.writeHead(200, {"Content-Type": "application/pairing#tlv8"});
         response.end(list);
         debug("[%s] Pairings: successfully executed LIST_PAIRINGS", this.accessoryInfo.username);
