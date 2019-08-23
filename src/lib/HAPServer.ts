@@ -846,9 +846,10 @@ export class HAPServer extends EventEmitter<Events> {
         if (timeout) {
           clearTimeout(timeout);
           delete this._timedWrites[writeRequest.pid];
+          debug("[%s] Timed write request got acknowledged for pid %d", this.accessoryInfo.username, writeRequest.pid);
         } else {
           // TODO also deny standard write requests to characteristics which require timed write requests
-
+          debug("[%s] TTL for timed write request has probably expired for pid %d", this.accessoryInfo.username, writeRequest.pid);
           response.writeHead(400, {"Content-Type": "application/hap+json"});
           response.end(JSON.stringify({status: Status.INVALID_VALUE_IN_REQUEST}));
           return;
@@ -897,7 +898,9 @@ export class HAPServer extends EventEmitter<Events> {
       const data = JSON.parse(requestData.toString()) as PrepareWriteRequest;
 
       if (data.pid && data.ttl) {
+        debug("[%s] Received prepare write request with pid %d and ttl %d", this.accessoryInfo.username, data.pid, data.ttl);
         this._timedWrites[data.pid] = setTimeout(() => {
+          debug("[%s] Timed write request timed out for pid %d", this.accessoryInfo.username, data.pid);
           delete this._timedWrites[data.pid];
         }, data.ttl);
 
