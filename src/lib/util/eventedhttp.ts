@@ -5,9 +5,10 @@ import createDebug from 'debug';
 import bufferShim from 'buffer-shims';
 
 import * as uuid from './uuid';
-import { Nullable } from '../../types';
+import {Nullable, SessionIdentifier} from '../../types';
 import { EventEmitter } from '../EventEmitter';
-import {HAPEncryption, Session} from '../HAPServer';
+import {HAPEncryption} from '../HAPServer';
+import srp from "fast-srp-hap";
 
 const debug = createDebug('EventedHTTPServer');
 
@@ -133,6 +134,38 @@ export class EventedHTTPServer extends EventEmitter<Events> {
   }
 }
 
+export class Session {
+
+  static sessions: Record<string, Session> = {};
+
+  _connection: EventedHTTPServerConnection;
+
+  sessionID: SessionIdentifier;
+  encryption?: HAPEncryption;
+  srpServer?: srp.Server;
+  username?: string;
+
+  constructor(connection: EventedHTTPServerConnection) {
+    this._connection = connection;
+    this.sessionID = connection.sessionID;
+  }
+
+  establishSession = (username: string) => {
+    this.username = username;
+
+    Session.sessions[username] = this;
+  };
+
+  _connectionDestroyed = () => {
+    if (this.username)
+      delete Session.sessions[this.username];
+  };
+
+  destroyConnection = () => {
+    this._connection._clientSocket.destroy();
+  };
+
+}
 
 /**
  * Manages a single iOS-initiated HTTP connection during its lifetime.
@@ -182,9 +215,7 @@ class EventedHTTPServerConnection extends EventEmitter<Events> {
     this._httpServer.on('error', this._onHttpServerError);
     this._httpServer.listen(0);
     // an arbitrary dict that users of this class can store values in to associate with this particular connection
-    this._session = {
-      sessionID: this.sessionID
-    };
+    this._session = new Session(this);
     // a collection of event names subscribed to by this connection
     this._events = {}; // this._events[eventName] = true (value is arbitrary, but must be truthy)
     debug("[%s] New connection from client", this._remoteAddress);
@@ -341,6 +372,7 @@ class EventedHTTPServerConnection extends EventEmitter<Events> {
     debug("[%s] Client connection closed", this._remoteAddress);
     // shutdown the other side
     this._serverSocket && this._serverSocket.destroy();
+    this._session._connectionDestroyed();
   }
 
   _onClientSocketError = (err: Error) => {

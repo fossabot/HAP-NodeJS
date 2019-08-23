@@ -9,7 +9,7 @@ import url from 'url';
 import * as encryption from './util/encryption';
 import * as hkdf from './util/hkdf';
 import * as tlv from './util/tlv';
-import {EventedHTTPServer, EventedHTTPServerEvents} from './util/eventedhttp';
+import {EventedHTTPServer, EventedHTTPServerEvents, Session} from './util/eventedhttp';
 import {once} from './util/once';
 import {IncomingMessage, ServerResponse} from "http";
 import {Characteristic} from './Characteristic';
@@ -96,13 +96,6 @@ export enum Status {
   INVALID_VALUE_IN_REQUEST = -70410, // invalid value in WRITE request
   INSUFFICIENT_AUTHORIZATION = -70411
 }
-
-export type Session = {
-  sessionID: SessionIdentifier;
-  encryption?: HAPEncryption;
-  srpServer?: srp.Server;
-  username?: string;
-};
 
 export enum HapRequestMessageTypes {
   PAIR_VERIFY = 'pair-verify',
@@ -611,7 +604,6 @@ export class HAPServer extends EventEmitter<Events> {
     var clientUsername = decoded[Types.USERNAME];
     var proof = decoded[Types.PROOF];
     var material = Buffer.concat([enc.clientPublicKey, clientUsername, enc.publicKey]);
-    session.username = clientUsername.toString();
     // since we're paired, we should have the public key stored for this client
     var clientPublicKey = this.accessoryInfo.getClientPublicKey(clientUsername.toString());
     // if we're not actually paired, then there's nothing to verify - this client thinks it's paired with us but we
@@ -642,6 +634,7 @@ export class HAPServer extends EventEmitter<Events> {
     // Our connection is now completely setup. We now want to subscribe this connection to special
     // "keepalive" events for detecting when connections are closed by the client.
     events['keepalive'] = true;
+    session.establishSession(clientUsername.toString());
   }
 
   _handleRemotePairVerify = (request: HapRequest, remoteSession: RemoteSession, session: Session) => {
@@ -788,7 +781,10 @@ export class HAPServer extends EventEmitter<Events> {
         response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
         response.end(tlv.encode(TLVValues.STATE, State.M2));
         debug("[%s] Pairings: successfully executed REMOVE_PAIRING", this.accessoryInfo.username);
-        // TODO if sessionID === identifier suspend session immediately; tear down connections to removed pairing
+
+        const existingSession = Session.sessions[identifier];
+        if (existingSession)
+          existingSession.destroyConnection();
       }));
     } else if (method === Methods.LIST_PAIRINGS) {
       this.emit(HAPServerEventTypes.LIST_PAIRINGS, session.username, once((errorCode: number, data?: PairingInformation[]) => {
