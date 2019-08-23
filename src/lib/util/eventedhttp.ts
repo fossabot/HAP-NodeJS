@@ -7,7 +7,7 @@ import bufferShim from 'buffer-shims';
 import * as uuid from './uuid';
 import { Nullable } from '../../types';
 import { EventEmitter } from '../EventEmitter';
-import { Session } from '../HAPServer';
+import {HAPEncryption, Session} from '../HAPServer';
 
 const debug = createDebug('EventedHTTPServer');
 
@@ -153,7 +153,7 @@ class EventedHTTPServerConnection extends EventEmitter<Events> {
   _clientSocket: Socket;
   _httpServer: http.Server;
   _serverSocket: Nullable<Socket>;
-  _session: { sessionID: string; };
+  _session: Session;
   _events: Record<string, boolean>;
   _httpPort?: number;
 

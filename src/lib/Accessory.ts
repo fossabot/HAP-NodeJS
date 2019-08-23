@@ -798,10 +798,10 @@ export class Accessory extends EventEmitter<Events> {
       return;
     }
 
-    /*if (!this._accessoryInfo.isAdmin(controller)) {
+    if (!this._accessoryInfo.isAdmin(controller)) {
       callback(Codes.AUTHENTICATION);
       return;
-    }*/
+    }
 
     const existingKey = this._accessoryInfo.getClientPublicKey(username);
     if (existingKey) {
@@ -826,10 +826,10 @@ export class Accessory extends EventEmitter<Events> {
       return;
     }
 
-    /*if (!this._accessoryInfo.isAdmin(controller)) {
+    if (!this._accessoryInfo.isAdmin(controller)) {
       callback(Codes.AUTHENTICATION);
       return;
-    }*/
+    }
 
     this._accessoryInfo.removePairedClient(username);
     this._accessoryInfo.save();
@@ -847,10 +847,10 @@ export class Accessory extends EventEmitter<Events> {
       return;
     }
 
-    /*if (!this._accessoryInfo.isAdmin(controller)) {
+    if (!this._accessoryInfo.isAdmin(controller)) {
       callback(Codes.AUTHENTICATION);
       return;
-    }*/
+    }
 
     callback(0, this._accessoryInfo.listPairings());
   };

@@ -112,6 +112,7 @@ export class AccessoryInfo {
   };
 
   isAdmin = (username: string) => {
+    if (!username) return false;
     const pairingInformation = this.pairedClients[username];
     return !!pairingInformation && pairingInformation.permission === 0x01;
   };
