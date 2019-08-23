@@ -753,6 +753,10 @@ export class HAPServer extends EventEmitter<Events> {
       const publicKey = objects[TLVValues.PUBLIC_KEY];
       const permissions = objects[TLVValues.PERMISSIONS][0];
 
+      debug("[%s] Controller %s is going to add:" +
+          "\nController: %s" +
+          "\nPermission: %d", this.accessoryInfo.username, identifier, permissions);
+
       this.emit(HAPServerEventTypes.ADD_PAIRING, session.sessionID, identifier, publicKey, permissions, once((errorCode: number, data?: void) => {
         if (errorCode > 0) {
           debug("[%s] Pairings: failed ADD_PAIRING with code %d", this.accessoryInfo.username, errorCode);
@@ -803,8 +807,15 @@ export class HAPServer extends EventEmitter<Events> {
           );
         });
 
+        debug("[%s] Listing pairings:" +
+            "\nLength: %d" +
+            "\nPairingInformationArray: %s" +
+            "\nTLV Length: %d" +
+            "\nTLV: %s", this.accessoryInfo.username, data!.length, JSON.stringify(data!), tlvList.length, tlvList.toString());
+
+        const list = tlv.encode(TLVValues.STATE, State.M2, ...tlvList);
         response.writeHead(200, {"Content-Type": "application/pairing#tlv8"});
-        response.end(tlv.encode(TLVValues.STATE, State.M2, ...tlvList));
+        response.end(list);
         debug("[%s] Pairings: successfully executed LIST_PAIRINGS", this.accessoryInfo.username);
       }));
     }
