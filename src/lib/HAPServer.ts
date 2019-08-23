@@ -14,13 +14,32 @@ import {once} from './util/once';
 import {IncomingMessage, ServerResponse} from "http";
 import {Characteristic} from './Characteristic';
 import {Accessory, CharacteristicEvents, Resource} from './Accessory';
-import {CharacteristicData, NodeCallback, SessionIdentifier, VoidCallback} from '../types';
+import {CharacteristicData, NodeCallback, SessionIdentifier, TLVCallback, VoidCallback} from '../types';
 import {EventEmitter} from './EventEmitter';
+import {PairingInformation} from "./model/AccessoryInfo";
 
 const debug = createDebug('HAPServer');
 
+export enum Methods {
+  PAIR_SETUP = 0x00,
+  PAIR_SETUP_WITH_AUTH = 0x01,
+  PAIR_VERIFY = 0x02,
+  ADD_PAIRING = 0x03,
+  REMOVE_PAIRING = 0x04,
+  LIST_PAIRINGS = 0x05
+}
+
+export enum State {
+  M1 = 0x01,
+  M2 = 0x02,
+  M3 = 0x03,
+  M4 = 0x04,
+  M5 = 0x05,
+  M6 = 0x06
+}
+
 // Various "type" constants for HAP's TLV encoding.
-export enum Types {
+export enum Types { // deprecated
   REQUEST_TYPE = 0x00,
   USERNAME = 0x01,
   SALT = 0x02,
@@ -31,11 +50,35 @@ export enum Types {
   ERROR_CODE = 0x07,
   PROOF = 0x0a
 }
+export enum TLVValues {
+  METHOD = 0x00,
+  IDENTIFIER = 0x01,
+  SALT = 0x02,
+  PUBLIC_KEY = 0x03,
+  PASSWORD_PROOF = 0x04,
+  ENCRYPTED_DATA = 0x05,
+  STATE = 0x06,
+  ERROR = 0x07,
+  RETRY_DELAY = 0x08,
+  CERTIFICATE = 0x09, // x.509 certificate
+  SIGNATURE = 0x0A, // apple authentication coprocessor
+  PERMISSIONS = 0x0B, // None (0x00): regular user, 0x01: Admin (able to add and remove pairings
+  FRAGMENT_DATA = 0x0C,
+  FRAGMENT_LAST = 0x0D,
+  FLAGS = 0x13,
+  SEPARATOR = 0xFF
+}
 
 // Error codes and the like, guessed by packet inspection
 export enum Codes {
-  INVALID_REQUEST = 0x02,
-  INVALID_SIGNATURE = 0x04
+  UNKNOWN = 0x01,
+  INVALID_REQUEST = 0x02, // Authentication: setup code or signature verification failed
+  AUTHENTICATION = 0x02,
+  BACKOFF = 0x03, // client must look at retry delay tlv item
+  INVALID_SIGNATURE = 0x04, // maxpeers, server cannot accept any more pairings
+  MAX_TRIES = 0x05, // server reached maximum number of authentication attempts
+  UNAVAILABLE = 0x06, // server pairing method is unavailable
+  BUSY = 0x07
 }
 
 // Status codes for underlying HAP calls
@@ -91,6 +134,9 @@ export enum HAPServerEventTypes {
   LISTENING = "listening",
   PAIR = 'pair',
   UNPAIR = 'unpair',
+  ADD_PAIRING = 'add-pairing',
+  REMOVE_PAIRING = 'remove-pairing',
+  LIST_PAIRINGS = 'list-pairings',
   ACCESSORIES = 'accessories',
   GET_CHARACTERISTICS = 'get-characteristics',
   SET_CHARACTERISTICS = 'set-characteristics',
@@ -103,6 +149,9 @@ export type Events = {
   [HAPServerEventTypes.LISTENING]: (port: number) => void;
   [HAPServerEventTypes.PAIR]: (clientUsername: string, clientLTPK: Buffer, cb: VoidCallback) => void;
   [HAPServerEventTypes.UNPAIR]: (clientUsername: string, cb: VoidCallback) => void;
+  [HAPServerEventTypes.ADD_PAIRING]: (controller: string, username: string, publicKey: Buffer, permission: number, callback: TLVCallback<void>) => void;
+  [HAPServerEventTypes.REMOVE_PAIRING]: (controller: string, username: string, callback: TLVCallback<void>) => void;
+  [HAPServerEventTypes.LIST_PAIRINGS]: (controller: string, callback: TLVCallback<PairingInformation[]>) => void;
   [HAPServerEventTypes.ACCESSORIES]: (cb: NodeCallback<Accessory[]>) => void;
   [HAPServerEventTypes.GET_CHARACTERISTICS]: (
     data: CharacteristicData[],
@@ -683,48 +732,77 @@ export class HAPServer extends EventEmitter<Events> {
   }
 
   /**
-   * Pair add/remove
+   * Pair add/remove/list
    */
   _handlePairings = (request: IncomingMessage, response: ServerResponse, session: Session, events: any, requestData: Buffer) => {
     // Only accept /pairing request if there is a secure session
     if (!this.allowInsecureRequest && !session.encryption) {
-      response.writeHead(401, {"Content-Type": "application/hap+json"});
-      response.end(JSON.stringify({status: Status.INSUFFICIENT_PRIVILEGES}));
+      response.writeHead(400, {"Content-Type": "application/pairing+tlv8"});
+      response.end(tlv.encode(TLVValues.STATE, State.M2, TLVValues.ERROR, Codes.AUTHENTICATION));
       return;
     }
-    var objects = tlv.decode(requestData);
-    var requestType = objects[Types.REQUEST_TYPE][0]; // value is single byte with request type
-    if (requestType == 3) {
-      // technically we're already paired and communicating securely if the client is able to call /pairings at all!
-      // but maybe the client wants to change their public key? so we'll emit 'pair' like we just paired again
-      debug("[%s] Adding pairing info for client", this.accessoryInfo.username);
-      var clientUsername = objects[Types.USERNAME];
-      var clientLTPK = objects[Types.PUBLIC_KEY];
-      this.emit(HAPServerEventTypes.PAIR, clientUsername.toString(), clientLTPK, once((err: Error) => {
-        if (err) {
-          debug("[%s] Error adding pairing info: %s", this.accessoryInfo.username, err.message);
-          response.writeHead(500, "Server Error");
-          response.end();
+
+    const objects = tlv.decode(requestData);
+    const method = objects[TLVValues.METHOD][0]; // value is single byte with request type
+
+    // validate that request sender has admin bit set
+    const state = objects[TLVValues.STATE][0]; // assert Methods.PAIR WITH_AUTH
+
+    if (method === Methods.ADD_PAIRING) {
+      const identifier = objects[TLVValues.IDENTIFIER].toString();
+      const publicKey = objects[TLVValues.PUBLIC_KEY];
+      const permissions = objects[TLVValues.PERMISSIONS][0];
+
+      this.emit(HAPServerEventTypes.ADD_PAIRING, session.sessionID, identifier, publicKey, permissions, once((errorCode: number, data?: void) => {
+        if (errorCode > 0) {
+          response.writeHead(400, {"Content-Type": "application/pairing+tlv8"});
+          response.end(tlv.encode(TLVValues.STATE, State.M2, TLVValues.ERROR, errorCode));
           return;
         }
+
         response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
-        response.end(tlv.encode(Types.SEQUENCE_NUM, 0x02));
+        response.end(tlv.encode(TLVValues.STATE, State.M2));
       }));
-    } else if (requestType == 4) {
-      debug("[%s] Removing pairing info for client", this.accessoryInfo.username);
-      var clientUsername = objects[Types.USERNAME];
-      this.emit(HAPServerEventTypes.UNPAIR, clientUsername.toString(), once((err?: Error) => {
-        if (err) {
-          debug("[%s] Error removing pairing info: %s", this.accessoryInfo.username, err.message);
-          response.writeHead(500, "Server Error");
-          response.end();
+    } else if (method === Methods.REMOVE_PAIRING) {
+      const identifier = objects[TLVValues.IDENTIFIER].toString();
+
+      this.emit(HAPServerEventTypes.REMOVE_PAIRING, session.sessionID, identifier, once((errorCode: number, data?: void) => {
+        if (errorCode > 0) {
+          response.writeHead(400, {"Content-Type": "application/pairing+tlv8"});
+          response.end(tlv.encode(TLVValues.STATE, State.M2, TLVValues.ERROR, errorCode));
           return;
         }
+
         response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
-        response.end(tlv.encode(Types.SEQUENCE_NUM, 0x02));
+        response.end(tlv.encode(TLVValues.STATE, State.M2));
+        // TODO if sessionID === identifier suspend session immediately; tear down connections to removed pairing
+      }));
+    } else if (method === Methods.LIST_PAIRINGS) {
+      this.emit(HAPServerEventTypes.LIST_PAIRINGS, session.sessionID, once((errorCode: number, data?: PairingInformation[]) => {
+        if (errorCode > 0) {
+          response.writeHead(400, {"Content-Type": "application/pairing+tlv8"});
+          response.end(tlv.encode(TLVValues.STATE, TLVValues.ERROR, errorCode));
+          return;
+        }
+
+        const tlvList = [] as any[];
+        data!.forEach((value: PairingInformation, index: number) => {
+          if (index > 0) {
+            tlvList.push(TLVValues.SEPARATOR, Buffer.alloc(0));
+          }
+
+          tlvList.push(
+              TLVValues.IDENTIFIER, value.username,
+              TLVValues.PUBLIC_KEY, value.publicKey,
+              TLVValues.PERMISSIONS, value.permission
+          );
+        });
+
+        response.writeHead(200, {"Content-Type": "application/pairing#tlv8"});
+        response.end(tlv.encode(TLVValues.STATE, State.M2, ...tlvList));
       }));
     }
-  }
+  };
 
   /*
    * Handlers for all after-pairing communication, or the bulk of HAP.

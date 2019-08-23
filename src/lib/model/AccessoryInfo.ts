@@ -3,7 +3,13 @@ import util from 'util';
 import tweetnacl from 'tweetnacl';
 import bufferShim from 'buffer-shims';
 
-import { Categories } from '../Accessory';
+import {Categories} from '../Accessory';
+
+export type PairingInformation = {
+  username: string,
+  publicKey: Buffer,
+  permission: number
+}
 
 /**
  * AccessoryInfo is a model class containing a subset of Accessory data relevant to the internal HAP server,
@@ -16,7 +22,7 @@ export class AccessoryInfo {
   pincode: string;
   signSk: any;
   signPk: any;
-  pairedClients: Record<string, Buffer>;
+  pairedClients: Record<string, PairingInformation>;
   configVersion: number;
   configHash: string;
   setupID: string;
@@ -35,7 +41,7 @@ export class AccessoryInfo {
     this.pincode = "";
     this.signSk = bufferShim.alloc(0);
     this.signPk = bufferShim.alloc(0);
-    this.pairedClients = {}; // pairedClients[clientUsername:string] = clientPublicKey:Buffer
+    this.pairedClients = {};
     this.configVersion = 1;
     this.configHash = "";
 
@@ -53,10 +59,32 @@ export class AccessoryInfo {
    * Add a paired client to memory.
    * @param {string} username
    * @param {Buffer} publicKey
+   * @param permission 0x00 for regular user; 0x01 for admin
    */
-  addPairedClient = (username: string, publicKey: Buffer) => {
-    this.pairedClients[username] = publicKey;
-  }
+  addPairedClient = (username: string, publicKey: Buffer, permission: number) => {
+    this.pairedClients[username] = {
+      username: username,
+      publicKey: publicKey,
+      permission: permission
+    };
+  };
+
+  updatePermission = (username: string, permission: number) => {
+    const pairingInformation = this.pairedClients[username];
+    if (pairingInformation)
+      pairingInformation.permission = permission;
+  };
+
+  listPairings = () => {
+    const array = [] as PairingInformation[];
+
+    for (const username in this.pairedClients) {
+      const pairingInformation = this.pairedClients[username] as PairingInformation;
+      array.push(pairingInformation);
+    }
+
+    return array;
+  };
 
   /**
    * Remove a paired client from memory.
@@ -73,12 +101,30 @@ export class AccessoryInfo {
       this.relayPairedControllers = {};
       this.accessoryBagURL = "";
     }
-  }
+  };
+
+  /**
+   * Check if username is paired
+   * @param username
+   */
+  isPaired = (username: string) => {
+    return !!this.pairedClients[username];
+  };
+
+  isAdmin = (username: string) => {
+    const pairingInformation = this.pairedClients[username];
+    return !!pairingInformation && pairingInformation.permission === 0x01;
+  };
 
 // Gets the public key for a paired client as a Buffer, or falsey value if not paired.
   getClientPublicKey = (username: string) => {
-    return this.pairedClients[username];
-  }
+    const pairingInformation = this.pairedClients[username];
+    if (pairingInformation) {
+      return pairingInformation.publicKey;
+    } else {
+      return undefined;
+    }
+  };
 
 // Returns a boolean indicating whether this accessory has been paired with a client.
   paired = (): boolean => {
@@ -121,9 +167,12 @@ export class AccessoryInfo {
     };
 
     for (var username in this.pairedClients) {
-      var publicKey = this.pairedClients[username];
+      var pairingInformation = this.pairedClients[username] as PairingInformation;
       //@ts-ignore
-      saved.pairedClients[username] = publicKey.toString('hex');
+      saved.pairedClients[username] = {
+        publicKey: pairingInformation.publicKey.toString('hex'),
+        permission: pairingInformation.permission
+      };
     }
 
     var key = AccessoryInfo.persistKey(this.username);
@@ -169,8 +218,20 @@ export class AccessoryInfo {
 
       info.pairedClients = {};
       for (var username in saved.pairedClients || {}) {
-        var publicKey = saved.pairedClients[username];
-        info.pairedClients[username] = bufferShim.from(publicKey, 'hex');
+        const pairingInformation = saved.pairedClients[username];
+        if (typeof pairingInformation === "object") {
+          info.pairedClients[username] = {
+            username: username,
+            publicKey: bufferShim.from(pairingInformation.publicKey, 'hex'),
+            permission: pairingInformation.permission
+          };
+        } else {
+          info.pairedClients[username] = {
+            username: username,
+            publicKey: bufferShim.from(pairingInformation, 'hex'), // migrate from old storage
+            permission: 0x01 // best is probably to assume admin permissions
+          }
+        }
       }
 
       info.configVersion = saved.configVersion || 1;
