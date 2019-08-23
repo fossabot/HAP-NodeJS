@@ -813,7 +813,7 @@ export class HAPServer extends EventEmitter<Events> {
             "\nPairingInformationArray: %s" +
             "\nTLV Length: %d" +
             "\nTLV List: %s", this.accessoryInfo.username, data!.length, JSON.stringify(data!), tlvList.length, JSON.stringify(tlvList));
-        response.writeHead(200, {"Content-Type": "application/pairing#tlv8"});
+        response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
         response.end(list);
         debug("[%s] Pairings: successfully executed LIST_PAIRINGS", this.accessoryInfo.username);
       }));
