@@ -815,8 +815,8 @@ export class Accessory extends EventEmitter<Events> {
     this._accessoryInfo.removePairedClient(controller, username);
     this._accessoryInfo.save();
 
-    if (controller === username && this._advertiser) {
-      this._advertiser.updateAdvertisement();
+    if (!this._accessoryInfo.paired()) {
+      this._advertiser && this._advertiser.updateAdvertisement();
     }
 
     callback(0);
