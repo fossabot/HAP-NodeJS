@@ -127,7 +127,6 @@ export enum HAPServerEventTypes {
   IDENTIFY = "identify",
   LISTENING = "listening",
   PAIR = 'pair',
-  UNPAIR = 'unpair',
   ADD_PAIRING = 'add-pairing',
   REMOVE_PAIRING = 'remove-pairing',
   LIST_PAIRINGS = 'list-pairings',
@@ -142,7 +141,6 @@ export type Events = {
   [HAPServerEventTypes.IDENTIFY]: (cb: VoidCallback) => void;
   [HAPServerEventTypes.LISTENING]: (port: number) => void;
   [HAPServerEventTypes.PAIR]: (clientUsername: string, clientLTPK: Buffer, cb: VoidCallback) => void;
-  [HAPServerEventTypes.UNPAIR]: (clientUsername: string, cb: VoidCallback) => void;
   [HAPServerEventTypes.ADD_PAIRING]: (controller: string, username: string, publicKey: Buffer, permission: number, callback: TLVCallback<void>) => void;
   [HAPServerEventTypes.REMOVE_PAIRING]: (controller: string, username: string, callback: TLVCallback<void>) => void;
   [HAPServerEventTypes.LIST_PAIRINGS]: (controller: string, callback: TLVCallback<PairingInformation[]>) => void;

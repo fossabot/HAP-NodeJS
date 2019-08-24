@@ -113,7 +113,6 @@ export type Resource = {
 
 type IdentifyCallback = VoidCallback;
 type PairCallback = VoidCallback;
-type UnpairCallback = VoidCallback;
 type AddPairingCallback = TLVCallback<void>;
 type RemovePairingCallback = TLVCallback<void>;
 type ListPairingsCallback = TLVCallback<PairingInformation[]>;
@@ -678,7 +677,6 @@ export class Accessory extends EventEmitter<Events> {
     this._server.on(HAPServerEventTypes.LISTENING, this._onListening);
     this._server.on(HAPServerEventTypes.IDENTIFY, this._handleIdentify);
     this._server.on(HAPServerEventTypes.PAIR, this._handlePair);
-    this._server.on(HAPServerEventTypes.UNPAIR, this._handleUnpair);
     this._server.on(HAPServerEventTypes.ADD_PAIRING, this._addPairing);
     this._server.on(HAPServerEventTypes.REMOVE_PAIRING, this._removePairing);
     this._server.on(HAPServerEventTypes.LIST_PAIRINGS, this._listPairings);
@@ -770,23 +768,6 @@ export class Accessory extends EventEmitter<Events> {
 
     // update our advertisement so it can pick up on the paired status of AccessoryInfo
     this._advertiser && this._advertiser.updateAdvertisement();
-
-    callback();
-  }
-
-// Called when HAPServer wishes to remove/unpair the pairing information of a client
-  _handleUnpair = (username: string, callback: UnpairCallback) => {
-
-    debug("[%s] Unpairing with client %s", this.displayName, username);
-
-    // Unpair
-    this._accessoryInfo && this._accessoryInfo.removePairedClient(username);
-    this._accessoryInfo && this._accessoryInfo.save();
-
-    // update our advertisement so it can pick up on the paired status of AccessoryInfo
-    if (this._advertiser) {
-      this._advertiser.updateAdvertisement();
-    }
 
     callback();
   }
