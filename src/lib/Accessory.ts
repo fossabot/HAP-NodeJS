@@ -786,7 +786,7 @@ export class Accessory extends EventEmitter<Events> {
 
     const existingKey = this._accessoryInfo.getClientPublicKey(username);
     if (existingKey) {
-      if (existingKey !== publicKey) {
+      if (existingKey.toString() !== publicKey.toString()) {
         callback(Codes.UNKNOWN);
         return;
       }
