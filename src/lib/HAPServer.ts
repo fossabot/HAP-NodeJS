@@ -405,8 +405,8 @@ export class HAPServer extends EventEmitter<Events> {
   _handlePair = (request: IncomingMessage, response: ServerResponse, session: Session, events: any, requestData: Buffer) => {
     // Can only be directly paired with one iOS device
     if (!this.allowInsecureRequest && this.accessoryInfo.paired()) {
-      response.writeHead(403);
-      response.end();
+      response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
+      response.end(tlv.encode(TLVValues.STATE, State.M2, TLVValues.ERROR, Codes.UNAVAILABLE));
       return;
     }
     var objects = tlv.decode(requestData);
