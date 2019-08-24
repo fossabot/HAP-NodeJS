@@ -536,7 +536,7 @@ export class HAPServer extends EventEmitter<Events> {
   _handlePairVerify = (request: IncomingMessage, response: ServerResponse, session: Session, events: any, requestData: Buffer) => {
     // Don't allow pair-verify without being paired first
     if (!this.allowInsecureRequest && !this.accessoryInfo.paired()) {
-      response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
+      response.writeHead(401, {"Content-Type": "application/pairing+tlv8"});
       response.end(tlv.encode(TLVValues.ERROR, Codes.AUTHENTICATION));
       return;
     }
