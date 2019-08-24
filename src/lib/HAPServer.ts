@@ -534,14 +534,16 @@ export class HAPServer extends EventEmitter<Events> {
    * iOS <-> Accessory pairing verification.
    */
   _handlePairVerify = (request: IncomingMessage, response: ServerResponse, session: Session, events: any, requestData: Buffer) => {
-    // Don't allow pair-verify without being paired first
-    if (!this.allowInsecureRequest && !this.accessoryInfo.paired()) {
-      response.writeHead(403);
-      response.end();
-      return;
-    }
     var objects = tlv.decode(requestData);
     var sequence = objects[Types.SEQUENCE_NUM][0]; // value is single byte with sequence number
+
+    // Don't allow pair-verify without being paired first
+    if (!this.allowInsecureRequest && !this.accessoryInfo.paired()) {
+      response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
+      response.end(tlv.encode(TLVValues.STATE, sequence + 1, TLVValues.ERROR, Codes.AUTHENTICATION));
+      return;
+    }
+
     if (sequence == 0x01)
       this._handlePairVerifyStepOne(request, response, session, objects);
     else if (sequence == 0x03)
