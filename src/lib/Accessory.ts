@@ -831,7 +831,7 @@ export class Accessory extends EventEmitter<Events> {
       return;
     }
 
-    this._accessoryInfo.removePairedClient(username);
+    this._accessoryInfo.removePairedClient(controller, username);
     this._accessoryInfo.save();
 
     if (controller === username && this._advertiser) {

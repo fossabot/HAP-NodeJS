@@ -165,6 +165,10 @@ export class Session {
     this._connection._clientSocket.destroy();
   };
 
+  destroyConnectionAfterWrite = () => {
+    this._connection._killSocketAfterWrite = true;
+  };
+
 }
 
 /**
@@ -182,6 +186,7 @@ class EventedHTTPServerConnection extends EventEmitter<Events> {
   _pendingClientSocketData: Nullable<Buffer>;
   _fullySetup: boolean;
   _writingResponse: boolean;
+  _killSocketAfterWrite: boolean;
   _pendingEventData: Buffer;
   _clientSocket: Socket;
   _httpServer: http.Server;
@@ -198,6 +203,7 @@ class EventedHTTPServerConnection extends EventEmitter<Events> {
     this._pendingClientSocketData = bufferShim.alloc(0); // data received from client before HTTP proxy is fully setup
     this._fullySetup = false; // true when we are finished establishing connections
     this._writingResponse = false; // true while we are composing an HTTP response (so events can wait)
+    this._killSocketAfterWrite = false;
     this._pendingEventData = bufferShim.alloc(0); // event data waiting to be sent until after an in-progress HTTP response is being written
     // clientSocket is the socket connected to the actual iOS device
     this._clientSocket = clientSocket;
@@ -323,6 +329,12 @@ class EventedHTTPServerConnection extends EventEmitter<Events> {
       data = encrypted.data!;
     // proxy it along to the client (iOS)
     this._clientSocket.write(data);
+
+    if (this._killSocketAfterWrite) {
+      setTimeout(() => {
+        this._clientSocket.destroy();
+      }, 10);
+    }
   }
 
   // Our internal HTTP Server has been closed (happens after we call this._httpServer.close() below)
