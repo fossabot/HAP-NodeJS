@@ -590,7 +590,7 @@ export class HAPServer extends EventEmitter<Events> {
     if (!encryption.verifyAndDecrypt(enc.hkdfPairEncKey, bufferShim.from("PV-Msg03"), messageData, authTagData, null, plaintextBuffer)) {
       debug("[%s] M3: Invalid signature", this.accessoryInfo.username);
       response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
-      response.end(tlv.encode(Types.ERROR_CODE, Codes.INVALID_REQUEST));
+      response.end(tlv.encode(TLVValues.STATE, State.M4, TLVValues.ERROR, Codes.AUTHENTICATION));
       return;
     }
     var decoded = tlv.decode(plaintextBuffer);
@@ -604,13 +604,13 @@ export class HAPServer extends EventEmitter<Events> {
     if (!clientPublicKey) {
       debug("[%s] Client %s attempting to verify, but we are not paired; rejecting client", this.accessoryInfo.username, clientUsername);
       response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
-      response.end(tlv.encode(Types.ERROR_CODE, Codes.INVALID_REQUEST));
+      response.end(tlv.encode(TLVValues.STATE, State.M4, TLVValues.ERROR, Codes.AUTHENTICATION));
       return;
     }
     if (!tweetnacl.sign.detached.verify(material, proof, clientPublicKey)) {
       debug("[%s] Client %s provided an invalid signature", this.accessoryInfo.username, clientUsername);
       response.writeHead(200, {"Content-Type": "application/pairing+tlv8"});
-      response.end(tlv.encode(Types.ERROR_CODE, Codes.INVALID_REQUEST));
+      response.end(tlv.encode(TLVValues.STATE, State.M4, TLVValues.ERROR, Codes.AUTHENTICATION));
       return;
     }
     debug("[%s] Client %s verification complete", this.accessoryInfo.username, clientUsername);
