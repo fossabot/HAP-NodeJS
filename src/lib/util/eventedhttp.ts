@@ -145,6 +145,9 @@ export class Session {
   srpServer?: srp.Server;
   username?: string;
 
+  timedWritePid?: number;
+  timedWriteTimeout?: NodeJS.Timeout;
+
   constructor(connection: EventedHTTPServerConnection) {
     this._connection = connection;
     this.sessionID = connection.sessionID;
