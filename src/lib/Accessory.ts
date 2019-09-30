@@ -6,6 +6,7 @@ import * as uuid from './util/uuid';
 import { clone } from './util/clone';
 import { Service, ServiceConfigurationChange, ServiceEventTypes } from './Service';
 import {
+  Access,
   Characteristic,
   CharacteristicEventTypes,
   CharacteristicSetCallback,
@@ -898,6 +899,27 @@ export class Accessory extends EventEmitter<Events> {
         return;
       }
 
+      if (characteristic.accessRestrictedToAdmins.includes(Access.READ)) {
+        let verifiable = true;
+        if (!session || !session.username || !this._accessoryInfo) {
+          verifiable = false;
+          debug('[%s] Could not verify admin permissions for Characteristic which requires admin permissions for reading (iid of %s and aid of %s)', this.displayName, characteristicData.aid, characteristicData.iid)
+        }
+
+        if (!verifiable || !this._accessoryInfo!.hasAdminPermissions(session.username!)) {
+          const response: any = {
+            aid: aid,
+            iid: iid
+          };
+          response[statusKey] = Status.INSUFFICIENT_PRIVILEGES;
+          characteristics.push(response);
+
+          if (characteristics.length === data.length)
+            callback(null, characteristics);
+          return;
+        }
+      }
+
       // Found the Characteristic! Get the value!
       debug('[%s] Getting value for Characteristic "%s"', this.displayName, characteristic.displayName);
 
@@ -1040,6 +1062,27 @@ export class Accessory extends EventEmitter<Events> {
           return;
         }
 
+        if (characteristic.accessRestrictedToAdmins.includes(Access.NOTIFY)) {
+          let verifiable = true;
+          if (!session || !session.username || !this._accessoryInfo) {
+            verifiable = false;
+            debug('[%s] Could not verify admin permissions for Characteristic which requires admin permissions for notify (iid of %s and aid of %s)', this.displayName, characteristicData.aid, characteristicData.iid)
+          }
+
+          if (!verifiable || !this._accessoryInfo!.hasAdminPermissions(session.username!)) {
+            const response: any = {
+              aid: aid,
+              iid: iid
+            };
+            response[statusKey] = Status.INSUFFICIENT_PRIVILEGES;
+            characteristics.push(response);
+
+            if (characteristics.length === data.length)
+              callback(null, characteristics);
+            return;
+          }
+        }
+
         debug('[%s] %s Characteristic "%s" for events', this.displayName, ev ? "Registering" : "Unregistering", characteristic.displayName);
 
         // store event registrations in the supplied "events" dict which is associated with the connection making
@@ -1086,6 +1129,27 @@ export class Accessory extends EventEmitter<Events> {
           if (characteristics.length === data.length)
             callback(null, characteristics);
           return;
+        }
+        
+        if (characteristic.accessRestrictedToAdmins.includes(Access.WRITE)) {
+          let verifiable = true;
+          if (!session || !session.username || !this._accessoryInfo) {
+            verifiable = false;
+            debug('[%s] Could not verify admin permissions for Characteristic which requires admin permissions for write (iid of %s and aid of %s)', this.displayName, characteristicData.aid, characteristicData.iid)
+          }
+
+          if (!verifiable || !this._accessoryInfo!.hasAdminPermissions(session.username!)) {
+            const response: any = {
+              aid: aid,
+              iid: iid
+            };
+            response[statusKey] = Status.INSUFFICIENT_PRIVILEGES;
+            characteristics.push(response);
+
+            if (characteristics.length === data.length)
+              callback(null, characteristics);
+            return;
+          }
         }
 
         debug('[%s] Setting Characteristic "%s" to value %s', this.displayName, characteristic.displayName, value);
