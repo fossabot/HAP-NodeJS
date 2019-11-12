@@ -246,7 +246,7 @@ class IPCameraExample {
                 comfort_noise: false,
                 codecs: [
                     {
-                        type: "AAC-lc", // Audio Codec
+                        type: "OPUS", // Audio Codec
                         samplerate: 24 // 8, 16, 24 KHz
                     },
                     {
@@ -516,7 +516,7 @@ class IPCameraExample {
             let samplerate = 0;
             let bitrateMode = 0;
 
-            if (codecType === 'AAC-lc') {
+            if (codecType === 'OPUS') { // TODO currently weird mapping
                 hasSupportedCodec = true;
                 codec = RecordingAudioCodec.AAC_LC;
                 bitrateMode = RecordingBitrateMode.VARIABLE;
