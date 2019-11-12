@@ -545,6 +545,7 @@ export class StreamController {
       audioInfo["comfort_pt"] = audioRTPParamsTLV[RTPParamTypes.COMFORT_NOISE_PAYLOAD_TYPE].readUInt8(0);
 
       request["audio"] = audioInfo as AudioInfo;
+      console.log("AUDIO birate: " + audioInfo.bit_rate + " maxbitrate: " + audioInfo.max_bit_rate);
     }
 
     if (!reconfigure && this.requireProxy) {
@@ -781,11 +782,11 @@ export class StreamController {
       ipAddress = addressInfo["address"];
 
       let videoInfo = response["video"];
-      videoPort.writeUInt16LE(videoInfo["port"], 0);
+      videoPort.writeUInt16LE(videoInfo["port"]+10, 0); // TODO port
       videoSSRC.writeUInt32LE(videoInfo["ssrc"]!, 0);
 
       let audioInfo = response["audio"];
-      audioPort.writeUInt16LE(audioInfo["port"], 0);
+      audioPort.writeUInt16LE(audioInfo["port"]+10, 0); // TODO port
       audioSSRC.writeUInt32LE(audioInfo["ssrc"]!, 0);
 
       if (this.supportSRTP) {
