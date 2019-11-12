@@ -105,6 +105,23 @@ export enum VideoCodecAttributesTypes {
     FRAME_RATE = 0x03,
 }
 
+export enum RecordingVideoCodec {
+    H264 = 0x00,
+    H265 = 0x01,
+}
+
+export enum RecordingVideoH264Profile {
+    BASE = 0x00,
+    MAIN = 0x01,
+    HIGH = 0x02,
+}
+
+export enum RecordingVideoH264Level {
+    LEVEL_3_1 = 0x00,
+    LEVEL_3_2 = 0x01,
+    LEVEL_4 = 0x02,
+}
+
 //--------------- SupportedAudioRecordingConfiguration
 
 export enum SupportedAudioRecordingConfigurationTypes {
@@ -112,7 +129,7 @@ export enum SupportedAudioRecordingConfigurationTypes {
 }
 
 export enum AudioCodecConfigurationTypes {
-    CODEC = 0x01,
+    RECORDING_CODEC = 0x01,
     PARAMETERS = 0x02
 }
 
@@ -121,6 +138,25 @@ export enum AudioCodecParametersTypes {
     BIT_RATE_MODES = 0x02, // list
     SAMPLE_RATES = 0x03, // list
     MAX_AUDIO_BITRATE = 0x04 // number
+}
+
+export enum RecordingAudioCodec {
+    AAC_LC = 0x00,
+    AAC_ELD = 0x01,
+}
+
+export enum RecordingBitrateMode {
+    VARIABLE = 0x00,
+    CONSTANT = 0x01,
+}
+
+export enum RecordingSampleRate {
+    KHZ_8 = 0x00,
+    KHZ_16 = 0x01,
+    KHZ_24 = 0x02,
+    KHZ_32 = 0x03,
+    KHZ_44_1 = 0x04,
+    KHZ_48 = 0x05,
 }
 
 // ---- GeneralConfiguration
@@ -146,6 +182,19 @@ export enum EventTriggerOption { // bitmask
 
 export enum MediaContainerType {
     FRAGMENTED_MP4 = 0x00,
+}
+
+// other enums, don't know if we need them?
+export enum RecordingVideoResolution { // preferred video resolution
+    UNKNOWN = 0x00,
+    R_640x480 = 0x01,
+    R_1024x768 = 0x02,
+    R_1280x960 = 0x03,
+    R_2048x1536 = 0x04,
+    R_640x360 = 0x05,
+    R_1280x720 = 0x06,
+    R_1920x1080 = 0x07,
+    R_3840x2160 = 0x08,
 }
 
 class IPCameraExample {
@@ -197,7 +246,7 @@ class IPCameraExample {
                 comfort_noise: false,
                 codecs: [
                     {
-                        type: "OPUS", // Audio Codec
+                        type: "AAC-lc", // Audio Codec
                         samplerate: 24 // 8, 16, 24 KHz
                     },
                     {
@@ -438,7 +487,7 @@ class IPCameraExample {
 
         const videoCodecConfiguration = Buffer.concat([
             tlv.encode(
-                VideoCodecConfigurationTypes.CODEC, 0, // h264
+                VideoCodecConfigurationTypes.CODEC, RecordingVideoCodec.H264, // h264
                 VideoCodecConfigurationTypes.PARAMETERS, parametersTlv,
             ),
             attributesTlv
@@ -463,28 +512,29 @@ class IPCameraExample {
             const codecType = codecParam.type;
             const samplerateType = codecParam.samplerate;
 
-            let codec = AudioCodecTypes.OPUS;
+            let codec;
             let samplerate = 0;
             let bitrateMode = 0;
 
-            if (codecType === 'OPUS') {
+            if (codecType === 'AAC-lc') {
                 hasSupportedCodec = true;
-                bitrateMode = AudioCodecParamBitRateTypes.VARIABLE;
+                codec = RecordingAudioCodec.AAC_LC;
+                bitrateMode = RecordingBitrateMode.VARIABLE;
             } else if (codecType == "AAC-eld") {
                 hasSupportedCodec = true;
-                codec = AudioCodecTypes.AACELD;
-                bitrateMode = AudioCodecParamBitRateTypes.VARIABLE;
+                codec = RecordingAudioCodec.AAC_ELD;
+                bitrateMode = RecordingBitrateMode.VARIABLE;
             } else {
                 console.log("Unsupported codec: " + codecType);
                 return;
             }
 
             if (samplerateType == 8) {
-                samplerate = AudioCodecParamSampleRateTypes.KHZ_8;
+                samplerate = RecordingSampleRate.KHZ_8;
             } else if (samplerateType == 16) {
-                samplerate = AudioCodecParamSampleRateTypes.KHZ_16;
+                samplerate = RecordingSampleRate.KHZ_16;
             } else if (samplerateType == 24) {
-                samplerate = AudioCodecParamSampleRateTypes.KHZ_24;
+                samplerate = RecordingSampleRate.KHZ_24;
             } else {
                 console.log("Unsupported sample rate: " + samplerateType);
                 return;
@@ -494,11 +544,11 @@ class IPCameraExample {
                 AudioCodecParametersTypes.CHANNELS, 1,
                 AudioCodecParametersTypes.BIT_RATE_MODES, bitrateMode, // can be list
                 AudioCodecParametersTypes.SAMPLE_RATES, samplerate, // can be list
-                AudioCodecParametersTypes.MAX_AUDIO_BITRATE, 24, // TODO value
+                AudioCodecParametersTypes.MAX_AUDIO_BITRATE, 48, // TODO value
             );
 
             const audioConfigurationTlv = tlv.encode(
-                AudioCodecConfigurationTypes.CODEC, codec,
+                AudioCodecConfigurationTypes.RECORDING_CODEC, codec,
                 AudioCodecConfigurationTypes.PARAMETERS, parametersTlv,
             );
 
