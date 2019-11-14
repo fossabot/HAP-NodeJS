@@ -300,7 +300,7 @@ class IPCameraExample {
             });
         this.services.push(switchService);
 
-        const operationMode = new Service.CameraOperatingMode('', '');
+        const operationMode = new Service.CameraOperatingMode('Motion detect', 'motion');
 
         let eventActive = false;
         let homekitCameraActive = false;
@@ -358,7 +358,7 @@ class IPCameraExample {
                 callback();
             });
 
-        const manuallyDisabled = new Service.Switch('', 'manually disabled');
+        const manuallyDisabled = new Service.Switch('Manual disable', 'manually disabled');
 
         manuallyDisabled.getCharacteristic(Characteristic.On)!
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
