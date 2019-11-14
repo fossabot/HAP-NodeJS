@@ -39,6 +39,7 @@ import ip from "ip";
 import * as tlv from "../lib/util/tlv";
 import bufferShim from "buffer-shims";
 import {SupportedVideoRecordingConfiguration} from "../lib/gen/HomeKit";
+import {SupportedAudioStreamConfiguration} from "../lib/HomeKitRemoteController";
 
 const sharp = require("sharp");
 
@@ -184,6 +185,13 @@ export enum MediaContainerType {
     FRAGMENTED_MP4 = 0x00,
 }
 
+//--------------- SelectedConfiguration
+export enum SelectedConfigurationTypes {
+    GENERAL_CONFIGURATION = 0x01,
+    VIDEO_CONFIGURATION = 0x02,
+    AUDIO_CONFIGURATION = 0x03,
+}
+
 // other enums, don't know if we need them?
 export enum RecordingVideoResolution { // preferred video resolution
     UNKNOWN = 0x00,
@@ -217,6 +225,9 @@ class IPCameraExample {
     recordingSupportedConfiguration: string;
     recordingSupportedVideoConfiguration: string;
     recordingSupportedAudioConfiguration: string;
+    selectedConfiguration: string;
+
+    options: StreamControllerOptions;
 
     constructor() {
         const options: StreamControllerOptions = {
@@ -256,10 +267,12 @@ class IPCameraExample {
                 ]
             }
         };
+        this.options = options;
 
-        this.recordingSupportedConfiguration = this._supportedRecordingGeneralConfiguration();
-        this.recordingSupportedVideoConfiguration = this._supportedRecordingVideoStreamConfiguration(options.video);
+        this.recordingSupportedConfiguration = this._supportedRecordingGeneralConfiguration().toString("base64");
+        this.recordingSupportedVideoConfiguration = this._supportedRecordingVideoStreamConfiguration(options.video).toString("base64");
         this.recordingSupportedAudioConfiguration = this._supportedRecordingAudioStreamConfiguration(options.audio);
+        this.selectedConfiguration = this._selectedConfiguration();
 
         //this.createCameraControlService();
         this.createSecureVideoService();
@@ -390,10 +403,11 @@ class IPCameraExample {
             }).getValue();
         recordingManagement.getCharacteristic(Characteristic.SelectedCameraRecordingConfiguration)!
             .on(CharacteristicEventTypes.GET, (callback: CharacteristicGetCallback) => {
-                callback(undefined, tlvDefault);
+                callback(undefined, this.selectedConfiguration);
             })
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
                 console.log("Received set " + value);
+                // TODO accept set
                 callback();
             }).getValue();
 
@@ -433,7 +447,7 @@ class IPCameraExample {
             mediaContainerConfigurationsList,
         ]);
 
-        return generalConfigurationTlv.toString("base64");
+        return generalConfigurationTlv;
     }
 
     _supportedRecordingVideoStreamConfiguration = (videoParams: StreamVideoParams) => {
@@ -496,7 +510,7 @@ class IPCameraExample {
         // one tlv per supported codec
         const supportedVideoConfiguration = tlv.encode(SupportedVideoRecordingConfigurationTypes.CODEC_CONFIGURATION, videoCodecConfiguration);
 
-        return supportedVideoConfiguration.toString("base64");
+        return supportedVideoConfiguration;
     };
 
     _supportedRecordingAudioStreamConfiguration = (audioParams: StreamAudioParams) => {
@@ -585,6 +599,30 @@ class IPCameraExample {
 
         return audioConfigurationsList.toString("base64");
     };
+
+    _selectedConfiguration() {
+        const generalConfigurationTLV = this._supportedRecordingGeneralConfiguration();
+        const videoConfigurationTLV = this._supportedRecordingVideoStreamConfiguration(this.options.video);
+
+        const audioCodecParameters = tlv.encode(
+            AudioCodecParametersTypes.CHANNELS, 1,
+            AudioCodecParametersTypes.BIT_RATE_MODES, AudioCodecParamBitRateTypes.VARIABLE,
+            AudioCodecParametersTypes.SAMPLE_RATES, RecordingSampleRate.KHZ_24,
+            AudioCodecParametersTypes.MAX_AUDIO_BITRATE, 48,
+        );
+
+        const supportedAudioCodec = tlv.encode(
+            AudioCodecConfigurationTypes.RECORDING_CODEC, RecordingAudioCodec.AAC_ELD,
+            AudioCodecConfigurationTypes.PARAMETERS, audioCodecParameters,
+        );
+
+        const selectedConfiguration = tlv.encode(
+            SelectedConfigurationTypes.GENERAL_CONFIGURATION, generalConfigurationTLV,
+            SelectedConfigurationTypes.VIDEO_CONFIGURATION, videoConfigurationTLV,
+            SelectedConfigurationTypes.AUDIO_CONFIGURATION, supportedAudioCodec,
+        );
+        return selectedConfiguration.toString("base64");
+    }
 
     handleSnapshotRequest = (request: SnapshotRequest, callback: NodeCallback<Buffer>) => {
         if (new Date().getTime() - this.lastSnapshot.time <= 5000  // if last snapshot was captured in less 5s ago
