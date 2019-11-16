@@ -1,45 +1,34 @@
-import {
-    Accessory,
-    Address,
-    AudioCodecParamBitRateTypes,
-    AudioCodecParamSampleRateTypes,
-    AudioCodecParamTypes,
-    AudioCodecTypes,
-    AudioTypes,
-    Categories,
-    Characteristic,
-    CharacteristicEventTypes,
-    CharacteristicGetCallback,
-    CharacteristicSetCallback,
-    CharacteristicValue, DataStreamManagement,
-    NodeCallback,
-    PreparedStreamRequestCallback,
-    PreparedStreamResponse,
-    PrepareStreamRequest,
-    Service,
-    SessionIdentifier,
-    SessionInfo,
-    SnapshotRequest,
-    StreamAudioParams,
-    StreamController,
-    StreamControllerOptions,
-    StreamRequest,
-    StreamVideoParams,
-    uuid,
-    VideoAttributesTypes,
-    VideoCodecParamPacketizationModeTypes,
-    VideoCodecParamTypes,
-    VideoCodecTypes,
-    VideoTypes
-} from '..';
 import {ChildProcessWithoutNullStreams, spawn} from "child_process";
 import fs from "fs";
 import crypto from "crypto";
 import ip from "ip";
 import * as tlv from "../lib/util/tlv";
-import bufferShim from "buffer-shims";
-import {SupportedVideoRecordingConfiguration} from "../lib/gen/HomeKit";
-import {SupportedAudioStreamConfiguration} from "../lib/HomeKitRemoteController";
+import {
+    Accessory,
+    Categories,
+    Characteristic,
+    CharacteristicEventTypes,
+    CharacteristicGetCallback,
+    CharacteristicSetCallback,
+    CharacteristicValue, DataStreamConnection,
+    DataStreamManagement, DataStreamServerEvents,
+    NodeCallback, Protocols,
+    Service,
+    SessionIdentifier,
+    SnapshotRequest,
+    StreamAudioParams,
+    StreamVideoParams, Topics,
+    uuid
+} from "..";
+import {
+    PreparedStreamRequestCallback,
+    PreparedStreamResponse,
+    PrepareStreamRequest,
+    SRTPCryptoSuites,
+    StreamController,
+    StreamControllerOptions,
+    StreamRequest
+} from "./StreamController";
 
 const sharp = require("sharp");
 
@@ -54,6 +43,7 @@ camera.category = Categories.IP_CAMERA;
 
 setTimeout(() => {
     const cameraSource = new IPCameraExample();
+    // @ts-ignore
     camera.configureCameraSource(cameraSource);
 },0);
 
@@ -67,6 +57,18 @@ const H264Level = [
     "3.2",
     "4.0"
 ];
+
+export type SessionInfo = {
+    address: string;
+    audio_port: number;
+    audio_crypto_suite: SRTPCryptoSuites,
+    audio_srtp: Buffer;
+    audio_ssrc: number;
+    video_port: number;
+    video_crypto_suite: SRTPCryptoSuites,
+    video_srtp: Buffer;
+    video_ssrc: number;
+}
 
 export enum SourceState {
     UNUSED,
@@ -146,7 +148,7 @@ export enum RecordingAudioCodec {
     AAC_ELD = 0x01,
 }
 
-export enum RecordingBitrateMode {
+export enum RecordingAudioBitrateMode {
     VARIABLE = 0x00,
     CONSTANT = 0x01,
 }
@@ -205,7 +207,7 @@ export enum RecordingVideoResolution { // preferred video resolution
     R_3840x2160 = 0x08,
 }
 
-class IPCameraExample {
+export class IPCameraExample {
 
     private static readonly filename = __dirname + "/snapshot.jpg";
 
@@ -229,11 +231,16 @@ class IPCameraExample {
 
     options: StreamControllerOptions;
 
+    dataStreamConnection?: DataStreamConnection;
+
     constructor() {
         const options: StreamControllerOptions = {
             proxy: false, // Requires RTP/RTCP MUX Proxy
             disable_audio_proxy: false, // If proxy = true, you can opt out audio proxy via this
-            srtp: true, // Supports SRTP AES_CM_128_HMAC_SHA1_80 encryption
+            supportedCryptoSuites: [
+                SRTPCryptoSuites.NONE,
+                SRTPCryptoSuites.AES_CM_128_HMAC_SHA1_80
+            ],
             video: {
                 resolutions: [
                     //[1920, 1080, 30], // Width, Height, framerate
@@ -289,6 +296,21 @@ class IPCameraExample {
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
                 if (value == true) {
                     motionSensor.setCharacteristic(Characteristic.MotionDetected, true);
+
+                    this.dataStreamConnection!.sendRequest(Protocols.DATA_SEND, Topics.OPEN, {
+                        target: "controller",
+                        type: "ipcamera.recording",
+                    }, (error, status, message) => {
+                        if (error || status) {
+                            if (error) { // errors get produced by hap-nodejs
+                                console.log("Error occurred trying to start siri audio stream: " + error.message);
+                            } else if (status) { // status codes are those returned by the hds response
+                                console.log("Controller responded with non-zero status code: " + status);
+                            }
+                        } else {
+                            console.log("Received message: " + message);
+                        }
+                    });
 
                     setTimeout(() => {
                         motionSensor.setCharacteristic(Characteristic.MotionDetected, false);
@@ -379,7 +401,7 @@ class IPCameraExample {
 
         let recordingActive = false;
 
-        const tlvDefault = Buffer.alloc(3,"000100", "hex").toString("base64");
+        // const tlvDefault = Buffer.alloc(3,"000100", "hex").toString("base64");
 
         recordingManagement.getCharacteristic(Characteristic.Active)!
             .on(CharacteristicEventTypes.GET, (callback: CharacteristicGetCallback) => {
@@ -416,6 +438,10 @@ class IPCameraExample {
         const datastreamManagement = new DataStreamManagement();
         this.services.push(datastreamManagement.getService());
         recordingManagement.addLinkedService(datastreamManagement.getService());
+
+        datastreamManagement.onServerEvent(DataStreamServerEvents.CONNECTION_OPENED, connection => {
+            this.dataStreamConnection = connection;
+        });
     };
 
     _supportedRecordingGeneralConfiguration() {
@@ -439,15 +465,13 @@ class IPCameraExample {
             break;
         }
 
-        const generalConfigurationTlv = Buffer.concat([
+        return Buffer.concat([
             tlv.encode(
                 RecordingGeneralConfigurationTypes.PRE_BUFFER_LENGTH, 1024, // TODO value?
                 RecordingGeneralConfigurationTypes.EVENT_TRIGGER_OPTIONS, EventTriggerOption.MOTION,
             ),
             mediaContainerConfigurationsList,
         ]);
-
-        return generalConfigurationTlv;
     }
 
     _supportedRecordingVideoStreamConfiguration = (videoParams: StreamVideoParams) => {
@@ -508,9 +532,7 @@ class IPCameraExample {
         ]);
 
         // one tlv per supported codec
-        const supportedVideoConfiguration = tlv.encode(SupportedVideoRecordingConfigurationTypes.CODEC_CONFIGURATION, videoCodecConfiguration);
-
-        return supportedVideoConfiguration;
+        return tlv.encode(SupportedVideoRecordingConfigurationTypes.CODEC_CONFIGURATION, videoCodecConfiguration);
     };
 
     _supportedRecordingAudioStreamConfiguration = (audioParams: StreamAudioParams) => {
@@ -533,11 +555,11 @@ class IPCameraExample {
             if (codecType === 'OPUS') { // TODO currently weird mapping
                 hasSupportedCodec = true;
                 codec = RecordingAudioCodec.AAC_LC;
-                bitrateMode = RecordingBitrateMode.VARIABLE;
+                bitrateMode = RecordingAudioBitrateMode.VARIABLE;
             } else if (codecType == "AAC-eld") {
                 hasSupportedCodec = true;
                 codec = RecordingAudioCodec.AAC_ELD;
-                bitrateMode = RecordingBitrateMode.VARIABLE;
+                bitrateMode = RecordingAudioBitrateMode.VARIABLE;
             } else {
                 console.log("Unsupported codec: " + codecType);
                 return;
@@ -606,7 +628,7 @@ class IPCameraExample {
 
         const audioCodecParameters = tlv.encode(
             AudioCodecParametersTypes.CHANNELS, 1,
-            AudioCodecParametersTypes.BIT_RATE_MODES, AudioCodecParamBitRateTypes.VARIABLE,
+            AudioCodecParametersTypes.BIT_RATE_MODES, RecordingAudioBitrateMode.VARIABLE,
             AudioCodecParametersTypes.SAMPLE_RATES, RecordingSampleRate.KHZ_24,
             AudioCodecParametersTypes.MAX_AUDIO_BITRATE, 48,
         );
@@ -662,6 +684,7 @@ class IPCameraExample {
                     callback(error);
                 }
                 else {
+                    console.log("Returning snapshot from FS!");
                     callback(null, data);
                 }
             });
@@ -679,6 +702,7 @@ class IPCameraExample {
             snapshotBuffer = Buffer.concat([snapshotBuffer, data]);
         });
 
+        // noinspection JSUnusedLocalSymbols
         ffmpeg.stderr.on('data', data => {
             //console.log('ffmpeg-snap-stderr ' + String(data));
         });
@@ -703,7 +727,7 @@ class IPCameraExample {
             }
             else {
                 console.log("Snapshot process exited with code " + code);
-                callback(new Error("Snapshot proccess exited with code " + code));
+                callback(new Error("Snapshot process exited with code " + code));
             }
         });
     }
@@ -715,74 +739,72 @@ class IPCameraExample {
     };
 
     prepareStream = (request: PrepareStreamRequest, callback: PreparedStreamRequestCallback) => {
-        // Invoked when iOS device requires stream
+        const sessionInfo: Partial<SessionInfo> = {
+            address: request.targetAddress
+        };
 
-        const sessionInfo: Partial<SessionInfo> = {};
-
-        const sessionID: SessionIdentifier = request["sessionID"];
-        sessionInfo["address"] = request["targetAddress"];
+        const sessionID: SessionIdentifier = request.sessionID;
+        const sessionIdentifier = uuid.unparse(sessionID);
 
         const response: Partial<PreparedStreamResponse> = {};
 
-        let videoInfo = request["video"];
+        const videoInfo = request.video;
         if (videoInfo) {
-            let targetPort = videoInfo["port"];
-            let srtp_key = videoInfo["srtp_key"];
-            let srtp_salt = videoInfo["srtp_salt"];
+            let targetPort = videoInfo.port;
+            let srtp_key = videoInfo.srtp_key;
+            let srtp_salt = videoInfo.srtp_salt;
 
             // SSRC is a 32 bit integer that is unique per stream
             let ssrcSource = crypto.randomBytes(4);
             ssrcSource[0] = 0;
             let ssrc = ssrcSource.readInt32BE(0);
 
-            response["video"] = {
+            response.video = {
                 port: targetPort,
                 ssrc: ssrc,
+                cryptoSuite: videoInfo.cryptoSuite,
                 srtp_key: srtp_key,
                 srtp_salt: srtp_salt
             };
 
-            sessionInfo["video_port"] = targetPort;
-            sessionInfo["video_srtp"] = Buffer.concat([srtp_key, srtp_salt]);
-            sessionInfo["video_ssrc"] = ssrc;
+            sessionInfo.video_port = targetPort;
+            sessionInfo.video_crypto_suite = videoInfo.cryptoSuite;
+            sessionInfo.video_srtp = Buffer.concat([srtp_key, srtp_salt]); // empty buffer if crypto is NONE
+            sessionInfo.video_ssrc = ssrc;
         }
 
-        let audioInfo = request["audio"];
+        const audioInfo = request.audio;
         if (audioInfo) {
-            let targetPort = audioInfo["port"];
-            let srtp_key = audioInfo["srtp_key"];
-            let srtp_salt = audioInfo["srtp_salt"];
+            let targetPort = audioInfo.port;
+            let srtp_key = audioInfo.srtp_key;
+            let srtp_salt = audioInfo.srtp_salt;
 
             // SSRC is a 32 bit integer that is unique per stream
             let ssrcSource = crypto.randomBytes(4);
             ssrcSource[0] = 0;
             let ssrc = ssrcSource.readInt32BE(0);
 
-            response["audio"] = {
+            response.audio = {
                 port: targetPort,
                 ssrc: ssrc,
+                cryptoSuite: audioInfo.cryptoSuite,
                 srtp_key: srtp_key,
                 srtp_salt: srtp_salt
             };
 
-            sessionInfo["audio_port"] = targetPort;
-            sessionInfo["audio_srtp"] = Buffer.concat([srtp_key, srtp_salt]);
-            sessionInfo["audio_ssrc"] = ssrc;
+            sessionInfo.audio_port = targetPort;
+            sessionInfo.audio_crypto_suite = audioInfo.cryptoSuite;
+            sessionInfo.audio_srtp = Buffer.concat([srtp_key, srtp_salt]); // empty buffer if crypto is NONE
+            sessionInfo.audio_ssrc = ssrc;
         }
 
-        let currentAddress = ip.address();
-        const addressResp: Partial<Address> = {
-            address: currentAddress
+        const currentAddress = ip.address();
+        response.address = {
+            address: currentAddress,
+            type: ip.isV4Format(currentAddress) ? "v4" : "v6"
         };
 
-        if (ip.isV4Format(currentAddress)) {
-            addressResp["type"] = "v4";
-        } else {
-            addressResp["type"] = "v6";
-        }
-
-        response["address"] = addressResp as Address;
-        this.pendingSessions[uuid.unparse(sessionID)] = sessionInfo as SessionInfo;
+        this.pendingSessions[sessionIdentifier] = sessionInfo as SessionInfo;
 
         callback(response as PreparedStreamResponse);
     };
@@ -851,18 +873,20 @@ class IPCameraExample {
         const address = this.pendingSessions[sessionIdentifier].address;
 
         const videoPort = this.pendingSessions[sessionIdentifier].video_port;
+        const videoCrypto = this.pendingSessions[sessionIdentifier].video_crypto_suite;
         const videoSrtp = this.pendingSessions[sessionIdentifier].video_srtp.toString('base64');
         const videoSsrc = this.pendingSessions[sessionIdentifier].video_ssrc;
 
-
-
         console.log(`Starting video stream (${width}x${height}, ${fps} fps, ${videoBitrate} kbps, ${maximalTransmissionUnit} mtu)...`);
-        const videoffmpegCommand = `\
--f lavfi -re -i testsrc=s=${width}x${height} \
--c:v h264 -s ${width}x${height} -r ${fps} -b:v ${videoBitrate}k -bufsize ${videoBitrate}k -maxrate ${videoBitrate}k \
+        let videoffmpegCommand = `\
+-f lavfi -re -i testsrc=size=${width}x${height}:rate=${fps} -map 0:0 \
+-c:v libx264 -an -sn -dn -b:v ${videoBitrate}k -bufsize ${2*videoBitrate}k -maxrate ${videoBitrate}k \
 -profile:v ${H264Profile[profile]} -level:v ${H264Level[level]} \
--payload_type ${videoPayloadType} -ssrc ${videoSsrc} -f rtp -srtp_out_suite AES_CM_128_HMAC_SHA1_80 \
--srtp_out_params ${videoSrtp} srtp://${address}:${videoPort}?rtcpport=${videoPort}&localrtcpport=${videoPort + 10}&pkt_size=${maximalTransmissionUnit} \
+-payload_type ${videoPayloadType} -ssrc ${videoSsrc} -f rtp `;
+        if (videoCrypto !== SRTPCryptoSuites.NONE) {
+            videoffmpegCommand += `-srtp_out_suite ${SRTPCryptoSuites[videoCrypto]} -srtp_out_params ${videoSrtp} s`;
+        }
+        videoffmpegCommand += `rtp://${address}:${videoPort}?rtcpport=${videoPort}&localrtcpport=${videoPort + 10}&pkt_size=${maximalTransmissionUnit} \
 -vf fps=1/5 -update 1 -y ${IPCameraExample.filename}`;
         console.log("FFMPEG command: ffmpeg " + videoffmpegCommand);
         const ffmpegVideo = spawn('ffmpeg', videoffmpegCommand.split(' '), {env: process.env});
@@ -924,12 +948,13 @@ class IPCameraExample {
             fs.unlinkSync(IPCameraExample.filename);
     };
 
+    // noinspection JSUnusedGlobalSymbols
     createCameraControlService = () => {
-        const controlService = new Service.CameraControl('', '');
+        /*const controlService = new Service.CameraControl('', '');
 
         // Developer can add control characteristics like rotation, night vision at here.
 
-        this.services.push(controlService);
+        this.services.push(controlService);*/
     };
 
     _forceStopController(sessionID: SessionIdentifier) {
