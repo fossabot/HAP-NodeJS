@@ -72,6 +72,11 @@ export enum LANFirewall {
   ALLOW_LIST_ACCESS = 0x01,
 }
 
+export enum LANIdentifier {
+  MAIN = 0x01,
+  HOMEKIT = 0x03,
+}
+
 export enum Protocol {
   TCP = 0x00,
   UDP = 0x01,
@@ -87,7 +92,18 @@ export enum WANFirewall {
   ALLOW_LIST_ACCESS = 0x01,
 }
 
-export enum LANIdentifier {
+export enum WANIdentifier {
   MAIN = 0x01,
-  HOMEKIT = 0x03,
+}
+
+export enum WANStatus {
+  UNKNOWN = 0x01,
+  CABLE_NOT_CONNECTED = 0x02,
+  NO_IP_ADDRESS = 0x04,
+  NO_GATEWAY = 0x08,
+  GATEWAY_NOT_REACHABLE = 0x010,
+  NO_DNS_SERVERS_CONFIGURED = 0x20,
+  DNS_SERVERS_NOT_REACHABLE = 0x040,
+  AUTHENTICATION_FAILURE = 0x80,
+  WALLED_NETWORK = 0x100,
 }
