@@ -1,5 +1,7 @@
 import bufferShim from 'buffer-shims';
 
+export const TLVListSeparator = 0x00; // TODO
+
 /**
  * Type Length Value encoding/decoding, used by HAP as a wire format.
  * https://en.wikipedia.org/wiki/Type-length-value
