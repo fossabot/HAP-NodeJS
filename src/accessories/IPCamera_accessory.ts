@@ -276,9 +276,9 @@ export class IPCameraExample {
         };
         this.options = options;
 
-        this.recordingSupportedConfiguration = this._supportedRecordingGeneralConfiguration().toString("base64");
-        this.recordingSupportedVideoConfiguration = this._supportedRecordingVideoStreamConfiguration(options.video).toString("base64");
-        this.recordingSupportedAudioConfiguration = this._supportedRecordingAudioStreamConfiguration(options.audio);
+        this.recordingSupportedConfiguration = this._supportedRecordingGeneralConfiguration();
+        this.recordingSupportedVideoConfiguration = this._supportedRecordingVideoStreamConfiguration();
+        this.recordingSupportedAudioConfiguration = this._supportedRecordingAudioStreamConfiguration();
         this.selectedConfiguration = this._selectedConfiguration();
 
         //this.createCameraControlService();
@@ -297,6 +297,7 @@ export class IPCameraExample {
                 if (value == true) {
                     motionSensor.setCharacteristic(Characteristic.MotionDetected, true);
 
+                    /*
                     this.dataStreamConnection!.sendRequest(Protocols.DATA_SEND, Topics.OPEN, {
                         target: "controller",
                         type: "ipcamera.recording",
@@ -310,7 +311,7 @@ export class IPCameraExample {
                         } else {
                             console.log("Received message: " + message);
                         }
-                    });
+                    });*/
 
                     setTimeout(() => {
                         motionSensor.setCharacteristic(Characteristic.MotionDetected, false);
@@ -450,7 +451,7 @@ export class IPCameraExample {
         // noinspection LoopStatementThatDoesntLoopJS
         for (;;) { // TODO remove
             const parametersTlv = tlv.encode(
-                MediaContainerParametersTypes.FRAGMENT_LENGTH, 1024, // TODO values; whats a typical fragment length?
+                MediaContainerParametersTypes.FRAGMENT_LENGTH, tlv.writeUInt32(4000),
             );
 
             const containerTlv = tlv.encode(
@@ -467,43 +468,36 @@ export class IPCameraExample {
 
         return Buffer.concat([
             tlv.encode(
-                RecordingGeneralConfigurationTypes.PRE_BUFFER_LENGTH, 1024, // TODO value?
-                RecordingGeneralConfigurationTypes.EVENT_TRIGGER_OPTIONS, EventTriggerOption.MOTION,
+                RecordingGeneralConfigurationTypes.PRE_BUFFER_LENGTH, tlv.writeUInt32(8000),
+                //RecordingGeneralConfigurationTypes.EVENT_TRIGGER_OPTIONS, EventTriggerOption.MOTION, // TODO
+                RecordingGeneralConfigurationTypes.EVENT_TRIGGER_OPTIONS, Buffer.from("0100000000000000", "hex"),
             ),
             mediaContainerConfigurationsList,
-        ]);
+        ]).toString("base64");
     }
 
-    _supportedRecordingVideoStreamConfiguration = (videoParams: StreamVideoParams) => {
-        let codec = videoParams["codec"];
-        if (!codec) {
-            throw new Error('Video codec cannot be undefined');
-        }
+    _supportedRecordingVideoStreamConfiguration = () => {
+        let parametersTlv = tlv.encode(
+            VideoCodecParametersTypes.PROFILE_ID, RecordingVideoH264Profile.MAIN,
+            VideoCodecParametersTypes.PROFILE_ID, RecordingVideoH264Profile.BASE,
+            VideoCodecParametersTypes.PROFILE_ID, RecordingVideoH264Profile.HIGH,
+            VideoCodecParametersTypes.LEVEL, RecordingVideoH264Level.LEVEL_3_1,
+            VideoCodecParametersTypes.LEVEL, RecordingVideoH264Level.LEVEL_3_2,
+            VideoCodecParametersTypes.LEVEL, RecordingVideoH264Level.LEVEL_4,
+            // VideoCodecParametersTypes.BITRATE, 0
+            // VideoCodecParametersTypes.IFRAME_INTERVAL, 0
+        );
 
-        let parametersTlv = Buffer.alloc(0);
-
-        codec.profiles.forEach(value => {
-            const tlvBuffer = tlv.encode(VideoCodecParametersTypes.PROFILE_ID, value);
-            parametersTlv = Buffer.concat([parametersTlv, tlvBuffer]);
-        });
-
-        codec.levels.forEach(value => {
-            const tlvBuffer = tlv.encode(VideoCodecParametersTypes.LEVEL, value);
-            parametersTlv = Buffer.concat([parametersTlv, tlvBuffer]);
-        });
-
-        parametersTlv = Buffer.concat([parametersTlv,
-            tlv.encode(VideoCodecParametersTypes.BITRATE, 0), // TODO maybe 0 for variable and 1 constant bitrate?
-            tlv.encode(VideoCodecParametersTypes.IFRAME_INTERVAL, 0), // TODO values
-        ]);
-
-        const resolutions = videoParams["resolutions"];
-        if (!resolutions) {
-            throw new Error('Video resolutions cannot be undefined');
-        }
-
+        const resolutionsList =  [
+            [1920, 1080, 30], // Width, Height, framerate
+            [1280, 720, 30],
+            [640, 360, 30],
+            [1920, 1080, 15],
+            [1280, 720, 15],
+            [640, 360, 15],
+        ];
         let attributesTlv = Buffer.alloc(0);
-        resolutions.forEach(value => {
+        resolutionsList.forEach(value => {
             if (value.length != 3) {
                 throw new Error('Unexpected video resolution');
             }
@@ -532,99 +526,38 @@ export class IPCameraExample {
         ]);
 
         // one tlv per supported codec
-        return tlv.encode(SupportedVideoRecordingConfigurationTypes.CODEC_CONFIGURATION, videoCodecConfiguration);
+        return tlv.encode(SupportedVideoRecordingConfigurationTypes.CODEC_CONFIGURATION, videoCodecConfiguration).toString("base64");
     };
 
-    _supportedRecordingAudioStreamConfiguration = (audioParams: StreamAudioParams) => {
-        let codecs = audioParams["codecs"];
-        if (!codecs) {
-            throw new Error('Audio codecs cannot be undefined');
-        }
-
+    _supportedRecordingAudioStreamConfiguration = () => {
         let audioConfigurationsList = Buffer.alloc(0);
-        let hasSupportedCodec = false;
 
-        codecs.forEach(codecParam => {
-            const codecType = codecParam.type;
-            const samplerateType = codecParam.samplerate;
-
-            let codec;
-            let samplerate = 0;
-            let bitrateMode = 0;
-
-            if (codecType === 'OPUS') { // TODO currently weird mapping
-                hasSupportedCodec = true;
-                codec = RecordingAudioCodec.AAC_LC;
-                bitrateMode = RecordingAudioBitrateMode.VARIABLE;
-            } else if (codecType == "AAC-eld") {
-                hasSupportedCodec = true;
-                codec = RecordingAudioCodec.AAC_ELD;
-                bitrateMode = RecordingAudioBitrateMode.VARIABLE;
-            } else {
-                console.log("Unsupported codec: " + codecType);
-                return;
-            }
-
-            if (samplerateType == 8) {
-                samplerate = RecordingSampleRate.KHZ_8;
-            } else if (samplerateType == 16) {
-                samplerate = RecordingSampleRate.KHZ_16;
-            } else if (samplerateType == 24) {
-                samplerate = RecordingSampleRate.KHZ_24;
-            } else {
-                console.log("Unsupported sample rate: " + samplerateType);
-                return;
-            }
-
+        // noinspection LoopStatementThatDoesntLoopJS
+        for (;;) { // can be list
             const parametersTlv = tlv.encode(
                 AudioCodecParametersTypes.CHANNELS, 1,
-                AudioCodecParametersTypes.BIT_RATE_MODES, bitrateMode, // can be list
-                AudioCodecParametersTypes.SAMPLE_RATES, samplerate, // can be list
-                AudioCodecParametersTypes.MAX_AUDIO_BITRATE, 48, // TODO value
+                AudioCodecParametersTypes.BIT_RATE_MODES, RecordingAudioBitrateMode.VARIABLE,
+                AudioCodecParametersTypes.SAMPLE_RATES, RecordingSampleRate.KHZ_32, // can be list
+                //AudioCodecParametersTypes.MAX_AUDIO_BITRATE, 48, // TODO value
             );
 
             const audioConfigurationTlv = tlv.encode(
-                AudioCodecConfigurationTypes.RECORDING_CODEC, codec,
+                AudioCodecConfigurationTypes.RECORDING_CODEC, RecordingAudioCodec.AAC_LC,
                 AudioCodecConfigurationTypes.PARAMETERS, parametersTlv,
             );
 
             audioConfigurationsList = Buffer.concat([audioConfigurationsList,
                 tlv.encode(SupportedAudioRecordingConfigurationTypes.CODEC_CONFIGURATION, audioConfigurationTlv),
             ]);
-        });
-
-        /*TODO
-            // If we're not one of the supported codecs
-            if(!hasSupportedCodec) {
-                console.log("Client doesn't support any audio codec that HomeKit supports.");
-
-                var codec = AudioCodecTypes.OPUS;
-                var bitrate = AudioCodecParamBitRateTypes.VARIABLE;
-                var samplerate = AudioCodecParamSampleRateTypes.KHZ_24;
-
-                var audioParamTLV = tlv.encode(
-                    AudioCodecParamTypes.CHANNEL, 1,
-                    AudioCodecParamTypes.BIT_RATE, bitrate,
-                    AudioCodecParamTypes.SAMPLE_RATE, AudioCodecParamSampleRateTypes.KHZ_24
-                );
-
-
-                var audioConfiguration = tlv.encode(
-                    AudioTypes.CODEC, codec,
-                    AudioTypes.CODEC_PARAM, audioParamTLV
-                );
-
-                audioConfigurationsBuffer = tlv.encode(0x01, audioConfiguration);
-
-                // TODO this.videoOnly = true;
-            }*/
+            break;
+        }
 
         return audioConfigurationsList.toString("base64");
     };
 
     _selectedConfiguration() {
         const generalConfigurationTLV = this._supportedRecordingGeneralConfiguration();
-        const videoConfigurationTLV = this._supportedRecordingVideoStreamConfiguration(this.options.video);
+        const videoConfigurationTLV = this._supportedRecordingVideoStreamConfiguration(); // TODO adjust
 
         const audioCodecParameters = tlv.encode(
             AudioCodecParametersTypes.CHANNELS, 1,
@@ -634,7 +567,7 @@ export class IPCameraExample {
         );
 
         const supportedAudioCodec = tlv.encode(
-            AudioCodecConfigurationTypes.RECORDING_CODEC, RecordingAudioCodec.AAC_ELD,
+            AudioCodecConfigurationTypes.RECORDING_CODEC, RecordingAudioCodec.AAC_LC,
             AudioCodecConfigurationTypes.PARAMETERS, audioCodecParameters,
         );
 
