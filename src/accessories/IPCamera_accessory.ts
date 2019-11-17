@@ -10,14 +10,14 @@ import {
     CharacteristicEventTypes,
     CharacteristicGetCallback,
     CharacteristicSetCallback,
-    CharacteristicValue, DataStreamConnection,
-    DataStreamManagement, DataStreamServerEvents,
-    NodeCallback, Protocols,
+    CharacteristicValue,
+    DataStreamConnection,
+    DataStreamManagement, DataStreamProtocolHandler,
+    DataStreamServerEvents, EventHandler,
+    NodeCallback, Protocols, RequestHandler,
     Service,
     SessionIdentifier,
-    SnapshotRequest,
-    StreamAudioParams,
-    StreamVideoParams, Topics,
+    SnapshotRequest, Topics,
     uuid
 } from "..";
 import {
@@ -82,7 +82,6 @@ export type SnapshotBuffer = {
     width: number,
     height: number,
 }
-
 
 //--------------- SupportedVideoRecordingConfiguration
 export enum SupportedVideoRecordingConfigurationTypes {
@@ -207,7 +206,7 @@ export enum RecordingVideoResolution { // preferred video resolution
     R_3840x2160 = 0x08,
 }
 
-export class IPCameraExample {
+export class IPCameraExample implements DataStreamProtocolHandler {
 
     private static readonly filename = __dirname + "/snapshot.jpg";
 
@@ -232,6 +231,8 @@ export class IPCameraExample {
     options: StreamControllerOptions;
 
     dataStreamConnection?: DataStreamConnection;
+    eventHandler?: Record<string, EventHandler>;
+    requestHandler?: Record<string, RequestHandler>;
 
     constructor() {
         const options: StreamControllerOptions = {
@@ -284,6 +285,10 @@ export class IPCameraExample {
         //this.createCameraControlService();
         this.createSecureVideoService();
         this._createStreamControllers(2, options);
+
+        this.requestHandler = {
+            [Topics.OPEN]: this.handleDataSendOpen.bind(this),
+        }
     }
 
     createSecureVideoService = () => {
@@ -296,22 +301,6 @@ export class IPCameraExample {
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
                 if (value == true) {
                     motionSensor.setCharacteristic(Characteristic.MotionDetected, true);
-
-                    /*
-                    this.dataStreamConnection!.sendRequest(Protocols.DATA_SEND, Topics.OPEN, {
-                        target: "controller",
-                        type: "ipcamera.recording",
-                    }, (error, status, message) => {
-                        if (error || status) {
-                            if (error) { // errors get produced by hap-nodejs
-                                console.log("Error occurred trying to start siri audio stream: " + error.message);
-                            } else if (status) { // status codes are those returned by the hds response
-                                console.log("Controller responded with non-zero status code: " + status);
-                            }
-                        } else {
-                            console.log("Received message: " + message);
-                        }
-                    });*/
 
                     setTimeout(() => {
                         motionSensor.setCharacteristic(Characteristic.MotionDetected, false);
@@ -403,7 +392,7 @@ export class IPCameraExample {
         let recordingActive = false;
         let recordingAudioActive = false;
 
-        const tlvDefault = Buffer.alloc(3,"000100", "hex").toString("base64");
+        //const tlvDefault = Buffer.alloc(3,"000100", "hex").toString("base64");
 
         recordingManagement.getCharacteristic(Characteristic.Active)!
             .on(CharacteristicEventTypes.GET, (callback: CharacteristicGetCallback) => {
@@ -454,8 +443,19 @@ export class IPCameraExample {
 
         datastreamManagement.onServerEvent(DataStreamServerEvents.CONNECTION_OPENED, connection => {
             this.dataStreamConnection = connection;
+            this.dataStreamConnection!.addProtocolHandler(Protocols.DATA_SEND, this);
         });
     };
+
+    handleDataSendOpen(id: number, message: Record<any, any>) {
+        const streamId = message["streamId"];
+
+        console.log("Received dataSend open with streamid: " + streamId);
+        this.dataStreamConnection!.sendResponse(Protocols.DATA_SEND, Topics.OPEN, id, 0, {
+            streamId: streamId,
+        });
+        // TODO send data lol
+    }
 
     _supportedRecordingGeneralConfiguration() {
         let mediaContainerConfigurationsList: Buffer;
@@ -481,8 +481,8 @@ export class IPCameraExample {
         return Buffer.concat([
             tlv.encode(
                 RecordingGeneralConfigurationTypes.PRE_BUFFER_LENGTH, tlv.writeUInt32(8000),
-                //RecordingGeneralConfigurationTypes.EVENT_TRIGGER_OPTIONS, EventTriggerOption.MOTION, // TODO
-                RecordingGeneralConfigurationTypes.EVENT_TRIGGER_OPTIONS, Buffer.from("0100000000000000", "hex"),
+                RecordingGeneralConfigurationTypes.EVENT_TRIGGER_OPTIONS,
+                    Buffer.concat([tlv.writeUInt32(EventTriggerOption.MOTION), Buffer.alloc(4, 0)]),
             ),
             mediaContainerConfigurationsList,
         ]).toString("base64");
@@ -491,10 +491,14 @@ export class IPCameraExample {
     _supportedRecordingVideoStreamConfiguration = () => {
         let parametersTlv = tlv.encode(
             VideoCodecParametersTypes.PROFILE_ID, RecordingVideoH264Profile.MAIN,
+            tlv.TLVListSeparator, Buffer.alloc(0),
             VideoCodecParametersTypes.PROFILE_ID, RecordingVideoH264Profile.BASE,
+            tlv.TLVListSeparator, Buffer.alloc(0),
             VideoCodecParametersTypes.PROFILE_ID, RecordingVideoH264Profile.HIGH,
             VideoCodecParametersTypes.LEVEL, RecordingVideoH264Level.LEVEL_3_1,
+            tlv.TLVListSeparator, Buffer.alloc(0),
             VideoCodecParametersTypes.LEVEL, RecordingVideoH264Level.LEVEL_3_2,
+            tlv.TLVListSeparator, Buffer.alloc(0),
             VideoCodecParametersTypes.LEVEL, RecordingVideoH264Level.LEVEL_4,
             // VideoCodecParametersTypes.BITRATE, 0
             // VideoCodecParametersTypes.IFRAME_INTERVAL, 0
@@ -519,9 +523,10 @@ export class IPCameraExample {
             const frameRate = value[2];
 
             const videoAttributeTlv = tlv.encode(
-                VideoCodecAttributesTypes.IMAGE_WIDTH, width,
-                VideoCodecAttributesTypes.IMAGE_HEIGHT, height,
+                VideoCodecAttributesTypes.IMAGE_WIDTH, tlv.writeUInt16(width),
+                VideoCodecAttributesTypes.IMAGE_HEIGHT, tlv.writeUInt16(height),
                 VideoCodecAttributesTypes.FRAME_RATE, frameRate,
+                tlv.TLVListSeparator, Buffer.alloc(0),
             );
 
             attributesTlv = Buffer.concat([attributesTlv,
@@ -596,18 +601,18 @@ export class IPCameraExample {
         const videoConfigurationTlv = objects[SelectedConfigurationTypes.VIDEO_CONFIGURATION];
         const videoObjects = tlv.decode(videoConfigurationTlv);
 
-        const videoCodec = videoObjects[VideoCodecConfigurationTypes.CODEC];
-        const videoParameters = tlv.decode(objects[VideoCodecConfigurationTypes.PARAMETERS]);
-        const videoAttributes = tlv.decode(objects[VideoCodecConfigurationTypes.ATTRIBUTES]);
+        const videoCodec = videoObjects[VideoCodecConfigurationTypes.CODEC].readUInt8(0);
+        const videoParameters = tlv.decode(videoObjects[VideoCodecConfigurationTypes.PARAMETERS]);
+        const videoAttributes = tlv.decode(videoObjects[VideoCodecConfigurationTypes.ATTRIBUTES]);
 
-        const videoProfile = videoParameters[VideoCodecParametersTypes.PROFILE_ID];
-        const videoLevel = videoParameters[VideoCodecParametersTypes.LEVEL];
-        const videoBitrate = videoParameters[VideoCodecParametersTypes.BITRATE];
-        const iFrameInterval = videoParameters[VideoCodecParametersTypes.IFRAME_INTERVAL];
+        const videoProfile = videoParameters[VideoCodecParametersTypes.PROFILE_ID].readUInt8(0);
+        const videoLevel = videoParameters[VideoCodecParametersTypes.LEVEL].readUInt8(0);
+        const videoBitrate = videoParameters[VideoCodecParametersTypes.BITRATE].readUInt32LE(0);
+        const iFrameInterval = videoParameters[VideoCodecParametersTypes.IFRAME_INTERVAL].readUInt32LE(0);
 
-        const width = videoAttributes[VideoCodecAttributesTypes.IMAGE_WIDTH];
-        const height = videoAttributes[VideoCodecAttributesTypes.IMAGE_HEIGHT];
-        const framerate = videoAttributes[VideoCodecAttributesTypes.FRAME_RATE];
+        const width = videoAttributes[VideoCodecAttributesTypes.IMAGE_WIDTH].readUInt16LE(0);
+        const height = videoAttributes[VideoCodecAttributesTypes.IMAGE_HEIGHT].readUInt16LE(0);
+        const framerate = videoAttributes[VideoCodecAttributesTypes.FRAME_RATE].readUInt8(0);
 
         const videoConfiguration = {
             codec: videoCodec,
@@ -627,13 +632,13 @@ export class IPCameraExample {
         const audioConfigurationTlv = objects[SelectedConfigurationTypes.AUDIO_CONFIGURATION];
         const audioObjects = tlv.decode(audioConfigurationTlv);
 
-        const audioCodec = audioObjects[AudioCodecConfigurationTypes.RECORDING_CODEC];
-        const audioParameters = tlv.decode(objects[AudioCodecConfigurationTypes.PARAMETERS]);
+        const audioCodec = audioObjects[AudioCodecConfigurationTypes.RECORDING_CODEC].readUInt8(0);
+        const audioParameters = tlv.decode(audioObjects[AudioCodecConfigurationTypes.PARAMETERS]);
 
-        const channels = audioParameters[AudioCodecParametersTypes.CHANNELS];
-        const bitrateModes = audioParameters[AudioCodecParametersTypes.BIT_RATE_MODES];
-        const sampleRate = audioParameters[AudioCodecParametersTypes.SAMPLE_RATES];
-        const maxAudioBitRate = audioParameters[AudioCodecParametersTypes.MAX_AUDIO_BITRATE];
+        const channels = audioParameters[AudioCodecParametersTypes.CHANNELS].readUInt8(0);
+        const bitrateModes = audioParameters[AudioCodecParametersTypes.BIT_RATE_MODES].readUInt8(0);
+        const sampleRate = audioParameters[AudioCodecParametersTypes.SAMPLE_RATES].readUInt8(0);
+        const maxAudioBitRate = audioParameters[AudioCodecParametersTypes.MAX_AUDIO_BITRATE].readUInt32LE(0);
 
         const audioConfiguration = {
             codec: audioCodec,
