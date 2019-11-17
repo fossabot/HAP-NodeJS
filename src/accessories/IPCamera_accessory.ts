@@ -279,7 +279,7 @@ export class IPCameraExample {
         this.recordingSupportedConfiguration = this._supportedRecordingGeneralConfiguration();
         this.recordingSupportedVideoConfiguration = this._supportedRecordingVideoStreamConfiguration();
         this.recordingSupportedAudioConfiguration = this._supportedRecordingAudioStreamConfiguration();
-        this.selectedConfiguration = this._selectedConfiguration();
+        this.selectedConfiguration = "";
 
         //this.createCameraControlService();
         this.createSecureVideoService();
@@ -401,8 +401,9 @@ export class IPCameraExample {
         const recordingManagement = new Service.CameraRecordingManagement('', '');
 
         let recordingActive = false;
+        let recordingAudioActive = false;
 
-        // const tlvDefault = Buffer.alloc(3,"000100", "hex").toString("base64");
+        const tlvDefault = Buffer.alloc(3,"000100", "hex").toString("base64");
 
         recordingManagement.getCharacteristic(Characteristic.Active)!
             .on(CharacteristicEventTypes.GET, (callback: CharacteristicGetCallback) => {
@@ -410,6 +411,16 @@ export class IPCameraExample {
             })
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
                 recordingActive = value as boolean;
+                console.log("Recording was set to " + (value? "ACTIVE": "INACTIVE"));
+                callback();
+            });
+        recordingManagement.getCharacteristic(Characteristic.RecordingAudioActive)!
+            .on(CharacteristicEventTypes.GET, (callback: CharacteristicGetCallback) => {
+                callback(undefined, recordingAudioActive);
+            })
+            .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
+                recordingAudioActive = value as boolean;
+                console.log("Recording audio was set to " + (value? "ACTIVE": "INACTIVE"));
                 callback();
             });
         recordingManagement.getCharacteristic(Characteristic.SupportedCameraRecordingConfiguration)!
@@ -429,8 +440,8 @@ export class IPCameraExample {
                 callback(undefined, this.selectedConfiguration);
             })
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-                console.log("Received set " + value);
-                // TODO accept set
+                this.selectedConfiguration = value as string;
+                this.handleSelectedCameraRecordingConfigurationWrite(this.selectedConfiguration);
                 callback();
             }).getValue();
 
@@ -439,6 +450,7 @@ export class IPCameraExample {
         const datastreamManagement = new DataStreamManagement();
         this.services.push(datastreamManagement.getService());
         recordingManagement.addLinkedService(datastreamManagement.getService());
+        recordingManagement.addLinkedService(motionSensor);
 
         datastreamManagement.onServerEvent(DataStreamServerEvents.CONNECTION_OPENED, connection => {
             this.dataStreamConnection = connection;
@@ -555,28 +567,92 @@ export class IPCameraExample {
         return audioConfigurationsList.toString("base64");
     };
 
-    _selectedConfiguration() {
-        const generalConfigurationTLV = this._supportedRecordingGeneralConfiguration();
-        const videoConfigurationTLV = this._supportedRecordingVideoStreamConfiguration(); // TODO adjust
+    handleSelectedCameraRecordingConfigurationWrite(tlvString: string) {
+        const tlvData = Buffer.from(tlvString, "base64");
+        const objects = tlv.decode(tlvData);
 
-        const audioCodecParameters = tlv.encode(
-            AudioCodecParametersTypes.CHANNELS, 1,
-            AudioCodecParametersTypes.BIT_RATE_MODES, RecordingAudioBitrateMode.VARIABLE,
-            AudioCodecParametersTypes.SAMPLE_RATES, RecordingSampleRate.KHZ_24,
-            AudioCodecParametersTypes.MAX_AUDIO_BITRATE, 48,
-        );
+        const generalConfigurationTlv = objects[SelectedConfigurationTypes.GENERAL_CONFIGURATION];
+        const generalObjects = tlv.decode(generalConfigurationTlv);
 
-        const supportedAudioCodec = tlv.encode(
-            AudioCodecConfigurationTypes.RECORDING_CODEC, RecordingAudioCodec.AAC_LC,
-            AudioCodecConfigurationTypes.PARAMETERS, audioCodecParameters,
-        );
+        const prebufferLength = tlv.readUInt32(generalObjects[RecordingGeneralConfigurationTypes.PRE_BUFFER_LENGTH]);
+        const eventTriggerOptions = tlv.readUInt64(generalObjects[RecordingGeneralConfigurationTypes.EVENT_TRIGGER_OPTIONS]);
+        const containerObjects = tlv.decode(generalObjects[RecordingGeneralConfigurationTypes.MEDIA_CONTAINER_CONFIGURATIONS]);
 
-        const selectedConfiguration = tlv.encode(
-            SelectedConfigurationTypes.GENERAL_CONFIGURATION, generalConfigurationTLV,
-            SelectedConfigurationTypes.VIDEO_CONFIGURATION, videoConfigurationTLV,
-            SelectedConfigurationTypes.AUDIO_CONFIGURATION, supportedAudioCodec,
-        );
-        return selectedConfiguration.toString("base64");
+        const containerType = containerObjects[MediaContainerConfigurationTypes.MEDIA_CONTAINER_TYPE][0];
+        const paramsObjects = tlv.decode(containerObjects[MediaContainerConfigurationTypes.CONTAINER_PARAMETERS]);
+        const fragmentLength = tlv.readUInt32(paramsObjects[MediaContainerParametersTypes.FRAGMENT_LENGTH]);
+
+        const generalConfiguration = {
+            preBufferLength: prebufferLength,
+            eventTriggerOptions: eventTriggerOptions,
+            containerConfiguration: {
+                containerType: containerType,
+                parameters: {
+                    fragmentLenght: fragmentLength,
+                }
+            }
+        };
+
+        const videoConfigurationTlv = objects[SelectedConfigurationTypes.VIDEO_CONFIGURATION];
+        const videoObjects = tlv.decode(videoConfigurationTlv);
+
+        const videoCodec = videoObjects[VideoCodecConfigurationTypes.CODEC];
+        const videoParameters = tlv.decode(objects[VideoCodecConfigurationTypes.PARAMETERS]);
+        const videoAttributes = tlv.decode(objects[VideoCodecConfigurationTypes.ATTRIBUTES]);
+
+        const videoProfile = videoParameters[VideoCodecParametersTypes.PROFILE_ID];
+        const videoLevel = videoParameters[VideoCodecParametersTypes.LEVEL];
+        const videoBitrate = videoParameters[VideoCodecParametersTypes.BITRATE];
+        const iFrameInterval = videoParameters[VideoCodecParametersTypes.IFRAME_INTERVAL];
+
+        const width = videoAttributes[VideoCodecAttributesTypes.IMAGE_WIDTH];
+        const height = videoAttributes[VideoCodecAttributesTypes.IMAGE_HEIGHT];
+        const framerate = videoAttributes[VideoCodecAttributesTypes.FRAME_RATE];
+
+        const videoConfiguration = {
+            codec: videoCodec,
+            parameters: {
+                profile: videoProfile,
+                level: videoLevel,
+                bitrate: videoBitrate,
+                iFrameInterval: iFrameInterval,
+            },
+            attributes: {
+                width: width,
+                height: height,
+                framerate: framerate,
+            }
+        };
+
+        const audioConfigurationTlv = objects[SelectedConfigurationTypes.AUDIO_CONFIGURATION];
+        const audioObjects = tlv.decode(audioConfigurationTlv);
+
+        const audioCodec = audioObjects[AudioCodecConfigurationTypes.RECORDING_CODEC];
+        const audioParameters = tlv.decode(objects[AudioCodecConfigurationTypes.PARAMETERS]);
+
+        const channels = audioParameters[AudioCodecParametersTypes.CHANNELS];
+        const bitrateModes = audioParameters[AudioCodecParametersTypes.BIT_RATE_MODES];
+        const sampleRate = audioParameters[AudioCodecParametersTypes.SAMPLE_RATES];
+        const maxAudioBitRate = audioParameters[AudioCodecParametersTypes.MAX_AUDIO_BITRATE];
+
+        const audioConfiguration = {
+            codec: audioCodec,
+            parameters: {
+                channels: channels,
+                bitrateModes: bitrateModes,
+                samplerate: sampleRate,
+                maxAudioBitRate: maxAudioBitRate,
+            }
+        };
+
+        const selectedConfiguration = {
+            generalConfiguration: generalConfiguration,
+            videoConfiguration: videoConfiguration,
+            audioConfiguration: audioConfiguration,
+        };
+
+        console.log("Received selected configuration:");
+        console.log(JSON.stringify(selectedConfiguration, null, 4));
     }
 
     handleSnapshotRequest = (request: SnapshotRequest, callback: NodeCallback<Buffer>) => {
