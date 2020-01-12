@@ -11,13 +11,19 @@ import {
     CharacteristicGetCallback,
     CharacteristicSetCallback,
     CharacteristicValue,
+    DataSendCloseReason,
     DataStreamConnection,
-    DataStreamManagement, DataStreamProtocolHandler,
-    DataStreamServerEvents, EventHandler,
-    NodeCallback, Protocols, RequestHandler,
+    DataStreamManagement,
+    DataStreamProtocolHandler,
+    DataStreamServerEvents, DataStreamStatus,
+    EventHandler,
+    NodeCallback,
+    Protocols,
+    RequestHandler,
     Service,
     SessionIdentifier,
-    SnapshotRequest, Topics,
+    SnapshotRequest,
+    Topics,
     uuid
 } from "..";
 import {
@@ -29,6 +35,8 @@ import {
     StreamControllerOptions,
     StreamRequest
 } from "./StreamController";
+import {VideoData2} from "./data2";
+import {VideoData} from "./data";
 
 const sharp = require("sharp");
 
@@ -226,13 +234,14 @@ export class IPCameraExample implements DataStreamProtocolHandler {
     recordingSupportedConfiguration: string;
     recordingSupportedVideoConfiguration: string;
     recordingSupportedAudioConfiguration: string;
-    selectedConfiguration: string;
+    selectedConfiguration: string; // TODO probably needs to be stored persistently(?)
 
     options: StreamControllerOptions;
 
-    dataStreamConnection?: DataStreamConnection;
     eventHandler?: Record<string, EventHandler>;
     requestHandler?: Record<string, RequestHandler>;
+
+    motionSensor: Service;
 
     constructor() {
         const options: StreamControllerOptions = {
@@ -282,37 +291,33 @@ export class IPCameraExample implements DataStreamProtocolHandler {
         this.recordingSupportedAudioConfiguration = this._supportedRecordingAudioStreamConfiguration();
         this.selectedConfiguration = "";
 
+        this.motionSensor = new Service.MotionSensor('', '');
+        this.services.push(this.motionSensor);
+
         //this.createCameraControlService();
         this.createSecureVideoService();
-        this._createStreamControllers(2, options);
-
-        this.requestHandler = {
-            [Topics.OPEN]: this.handleDataSendOpen.bind(this),
-        }
+        this._createStreamControllers(1, options);
+        console.log("Created!");
     }
 
     createSecureVideoService = () => {
-        const motionSensor = new Service.MotionSensor('', '');
-        this.services.push(motionSensor);
-
-        const switchService = new Service.Switch('', '');
+        const switchService = new Service.Switch('Motion detect', 'motion');
 
         switchService.getCharacteristic(Characteristic.On)!
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
                 if (value == true) {
-                    motionSensor.setCharacteristic(Characteristic.MotionDetected, true);
+                    this.motionSensor.setCharacteristic(Characteristic.MotionDetected, true);
 
                     setTimeout(() => {
-                        motionSensor.setCharacteristic(Characteristic.MotionDetected, false);
                         switchService.getCharacteristic(Characteristic.On)!.updateValue(false);
-                    }, 1500);
+                    }, 1000);
                 }
 
                 callback();
             });
         this.services.push(switchService);
 
-        const operationMode = new Service.CameraOperatingMode('Motion detect', 'motion');
+        const operationMode = new Service.CameraOperatingMode('', '');
 
         let eventActive = false;
         let homekitCameraActive = false;
@@ -430,6 +435,8 @@ export class IPCameraExample implements DataStreamProtocolHandler {
             })
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
                 this.selectedConfiguration = value as string;
+                // AR0BBKAPAAACCAEAAAAAAAAAAwsBAQACBgEEoA8AAAIkAQEAAhIBAQECAQIDBCADAAAEBKAPAAADCwECgAcCAjgEAwEeAxQBAQACDwEBAQIBAAMBAwQEQAAAAA==
+                // AR0BBKAPAAACCAEAAAAAAAAAAwsBAQACBgEEoA8AAAIkAQEAAhIBAQECAQIDBCADAAAEBKAPAAADCwECgAcCAjgEAwEeAxQBAQACDwEBAQIBAAMBAwQEQAAAAA==
                 this.handleSelectedCameraRecordingConfigurationWrite(this.selectedConfiguration);
                 callback();
             }).getValue();
@@ -439,22 +446,104 @@ export class IPCameraExample implements DataStreamProtocolHandler {
         const datastreamManagement = new DataStreamManagement();
         this.services.push(datastreamManagement.getService());
         recordingManagement.addLinkedService(datastreamManagement.getService());
-        recordingManagement.addLinkedService(motionSensor);
+        recordingManagement.addLinkedService(this.motionSensor);
 
         datastreamManagement.onServerEvent(DataStreamServerEvents.CONNECTION_OPENED, connection => {
-            this.dataStreamConnection = connection;
-            this.dataStreamConnection!.addProtocolHandler(Protocols.DATA_SEND, this);
+            connection.addProtocolHandler(Protocols.DATA_SEND, {
+                eventHandler: {
+                    [Topics.CLOSE]: this.handleDataSendClose.bind(this, connection),
+                },
+                requestHandler: {
+                    [Topics.OPEN]: this.handleDataSendOpen.bind(this, connection),
+                }
+            });
         });
     };
 
-    handleDataSendOpen(id: number, message: Record<any, any>) {
+    handleDataSendOpen(connection: DataStreamConnection, id: number, message: Record<any, any>) {
         const streamId = message["streamId"];
+        const type = message["type"]; // assert to be "ipcamera.recording"
+        const target = message["target"]; // assert to be "controller"
 
-        console.log("Received dataSend open with streamid: " + streamId);
-        this.dataStreamConnection!.sendResponse(Protocols.DATA_SEND, Topics.OPEN, id, 0, {
-            streamId: streamId,
+        console.log("Received dataSend open with streamid: " + streamId + " " + JSON.stringify(message));
+
+        connection.sendResponse(Protocols.DATA_SEND, Topics.OPEN, id, 0, {
+            status: 0, // what codes have which meaning?
         });
-        // TODO send data lol
+
+        const data = 1;
+        const init = data === 1? VideoData.INIT: VideoData2.INIT;
+        const sequences = data === 1
+            ? [Buffer.concat([VideoData.SEQUENCE2_1, VideoData.SEQUENCE2_2]), Buffer.concat([VideoData.SEQUENCE3_1, VideoData.SEQUENCE3_2]), Buffer.concat([VideoData.SEQUENCE4_1, VideoData.SEQUENCE4_2])]
+            :[VideoData2.SEGMENT1, VideoData2.SEGMENT2, VideoData2.SEGMENT3];
+
+        setTimeout(() => {
+            console.log("Sending media initialization");
+
+            connection.sendEvent(Protocols.DATA_SEND, Topics.DATA, {
+                streamId: streamId,
+                packets: [
+                    {
+                        metadata: {
+                            dataType: "mediaInitialization",
+                            dataSequenceNumber: 1,
+                            isLastDataChunk: true,
+                            dataChunkSequenceNumber: 1,
+                        },
+                        data: init,
+                    }
+                ],
+            });
+
+            const sendSequence = (data: Buffer, sequence: number) => {
+                const steps = 524288; // some magic
+                for (let chunk = 1, i = 0; i < data.length; i += steps, chunk++) {
+                    const slice = data.slice(i, i + steps);
+
+                    console.log("  Sending chunk " + chunk);
+
+                    connection.sendEvent(Protocols.DATA_SEND, Topics.DATA, {
+                        streamId: streamId,
+                        packets: [
+                            {
+                                metadata: {
+                                    dataType: "mediaFragment",
+                                    dataSequenceNumber: sequence,
+                                    isLastDataChunk: (i + steps) >= data.length,
+                                    dataChunkSequenceNumber: chunk,
+                                },
+                                data: slice,
+                            }
+                        ],
+                    });
+                }
+            };
+
+            console.log("Sending preBuffer0");
+            sendSequence(sequences[0], 2); // preBuffer0
+            console.log("Sending preBuffer1");
+            sendSequence(sequences[1], 3); // preBuffer1
+
+            setTimeout(() => {
+                this.motionSensor.setCharacteristic(Characteristic.MotionDetected, false);
+                console.log("Sending current frame");
+                sendSequence(sequences[2], 4);
+
+                /*
+                setTimeout(() => {
+                    console.log("Sending additional frame");
+                    this.motionSensor.setCharacteristic(Characteristic.MotionDetected, false);
+                    sendSequence(sequences[3], 5);
+                }, 4000);*/
+            }, 3000);
+        }, 50);
+    }
+
+    handleDataSendClose(connection: DataStreamConnection, message: Record<any, any>) {
+        const streamId = message["streamId"];
+        const reason = message["reason"];
+
+        console.log("Stream with id " + streamId + " was closed " + DataSendCloseReason[reason]);
     }
 
     _supportedRecordingGeneralConfiguration() {
@@ -465,6 +554,11 @@ export class IPCameraExample implements DataStreamProtocolHandler {
             const parametersTlv = tlv.encode(
                 MediaContainerParametersTypes.FRAGMENT_LENGTH, tlv.writeUInt32(4000),
             );
+            /*
+            Analysis failed for fragment 5 with error: Error Domain=HMIErrorDomain Code=6 "[A75C1E43-D147-4113-A0CD-A5260222B4A8]
+            [Fragment:5] Video fragment duration: 2007025.042000s is greater than expected value: 4.400000s" UserInfo={NSLocalizedDescription=[A75C1E43-D147-4113-A0CD-A5260222B4A8]
+            [Fragment:5] Video fragment duration: 2007025.042000s is greater than expected value: 4.400000s}
+             */
 
             const containerTlv = tlv.encode(
                 MediaContainerConfigurationTypes.MEDIA_CONTAINER_TYPE, MediaContainerType.FRAGMENTED_MP4,
@@ -572,6 +666,7 @@ export class IPCameraExample implements DataStreamProtocolHandler {
         return audioConfigurationsList.toString("base64");
     };
 
+    // TODO failed to parse camera recording selected configuration
     handleSelectedCameraRecordingConfigurationWrite(tlvString: string) {
         const tlvData = Buffer.from(tlvString, "base64");
         const objects = tlv.decode(tlvData);
@@ -593,7 +688,7 @@ export class IPCameraExample implements DataStreamProtocolHandler {
             containerConfiguration: {
                 containerType: containerType,
                 parameters: {
-                    fragmentLenght: fragmentLength,
+                    fragmentLength: fragmentLength,
                 }
             }
         };

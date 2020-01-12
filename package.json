@@ -28,7 +28,8 @@
     "simple-plist": "0.0.4",
     "ts-jest": "^24.0.2",
     "ts-node": "^8.3.0",
-    "typescript": "^3.5.3"
+    "typescript": "^3.5.3",
+    "hexdump-nodejs": "^0.1.0"
   },
   "scripts": {
     "build": "rimraf dist/ && tsc",

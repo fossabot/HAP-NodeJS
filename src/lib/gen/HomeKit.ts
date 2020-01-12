@@ -42,7 +42,7 @@ export class Active extends Characteristic {
       maxValue: 1,
       minValue: 0,
       validValues: [0, 1],
-      perms: [Perms.READ, Perms.WRITE, Perms.NOTIFY]
+      perms: [Perms.READ, Perms.WRITE, Perms.NOTIFY, Perms.TIMED_WRITE]
     });
     this.value = this.getDefaultValue();
   }
@@ -3571,6 +3571,7 @@ export class CameraRTPStreamManagement extends Service {
 
     // Optional Characteristics
     this.addOptionalCharacteristic(Characteristic.Name);
+    this.addOptionalCharacteristic(Characteristic.Active); // introduced with secure video
   }
 }
 
@@ -4463,7 +4464,7 @@ export class CameraOperatingMode extends Service {
 
     // Required Characteristics
     this.addCharacteristic(Characteristic.EventSnapshotsActive);
-    this.addCharacteristic(Characteristic.HomeKitCameraActive);
+    this.addCharacteristic(Characteristic.HomeKitCameraActive); // indicates if camera is set to active and "activity should be detected"
 
     // Optional Characteristics
     this.addOptionalCharacteristic(Characteristic.Name);

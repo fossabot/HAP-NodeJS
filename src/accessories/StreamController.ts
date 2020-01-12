@@ -330,6 +330,17 @@ export class StreamController {
     _createService() {
         const managementService = new Service.CameraRTPStreamManagement('', this.identifier.toString());
 
+        let active: CharacteristicValue = true;
+        managementService.getCharacteristic(Characteristic.Active)! // introduced with secure video, handles switching off the camera
+            .on(CharacteristicEventTypes.GET, (callback: CharacteristicGetCallback) => {
+                callback(null, active);
+            })
+            .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
+                active = value;
+                console.log("Camera was switched " + (active? "ON": "OFF"));
+                callback();
+            });
+
         managementService
             .getCharacteristic(Characteristic.StreamingStatus)!
             .on(CharacteristicEventTypes.GET, (callback: CharacteristicGetCallback) => {

@@ -413,7 +413,7 @@ export type DataStreamConnectionEventMap = {
  */
 export class DataStreamConnection extends EventEmitter<DataStreamConnectionEventMap> {
 
-    private static readonly MAX_PAYLOAD_LENGTH = 0x11111111111111111111;
+    private static readonly MAX_PAYLOAD_LENGTH = 0b11111111111111111111;
 
     private socket: Socket;
     private session?: Session; // reference to the hap session. is present when state > UNIDENTIFIED
@@ -581,7 +581,7 @@ export class DataStreamConnection extends EventEmitter<DataStreamConnectionEvent
         header["protocol"] = protocol;
         header["response"] = response;
         header["id"] = new Int64(id);
-        header["status"] = new Int64(status);
+        header["status"] = status;
 
         this.sendHDSFrame(header, message);
     }
