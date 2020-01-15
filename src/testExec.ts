@@ -1,11 +1,11 @@
-const tsNode = require("ts-node");
-tsNode.register({
+//const tsNode = require("ts-node");
+/*tsNode.register({
     project: "./tsconfig.json",
-    files: true,
-});
+    //files: true,
+});*/
 
-const testAccessory = require("../src/accessories/TestAccessory.ts");
+const testAccessory = require("./accessories/TestAccessory.js");
 
 console.log(testAccessory);
 
-require("../src/accessories/console-log.js");
+require("./accessories/console-log.js");

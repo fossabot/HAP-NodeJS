@@ -30,7 +30,7 @@
     "typescript": "^3.5.3"
   },
   "scripts": {
-    "build": "rimraf dist/ && tsc",
+    "build": "rimraf dist/ && tsc && cp src/accessories/*.js dist/accessories",
     "prepublishOnly": "npm run build",
     "test": "jest",
     "start": "node dist/BridgedCore.js"
