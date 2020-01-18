@@ -234,7 +234,7 @@ export class IPCameraExample implements DataStreamProtocolHandler {
     recordingSupportedConfiguration: string;
     recordingSupportedVideoConfiguration: string;
     recordingSupportedAudioConfiguration: string;
-    selectedConfiguration: string; // TODO probably needs to be stored persistently(?)
+    selectedConfiguration: string; // TODO NEEDS to be stored persistently
 
     options: StreamControllerOptions;
 
@@ -405,7 +405,9 @@ export class IPCameraExample implements DataStreamProtocolHandler {
             })
             .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
                 recordingActive = value as boolean;
-                console.log("Recording was set to " + (value? "ACTIVE": "INACTIVE"));
+                // TODO active is only written to when a HDS connection is up and running; otherwise INVALID_WRITE
+                // TODO active seems to select to correct hds connection
+                console.log("Recording was set to " + (value ? "ACTIVE" : "INACTIVE"));
                 callback();
             });
         recordingManagement.getCharacteristic(Characteristic.RecordingAudioActive)!

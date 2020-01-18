@@ -1,0 +1,5 @@
+const base64 = "AR0BBKAPAAACCAEAAAAAAAAAAwsBAQACBgEEoA8AAAIkAQEAAhIBAQECAQIDBCADAAAEBKAPAAADCwECgAcCAjgEAwEeAxQBAQACDwEBAQIBAAMBAwQEQAAAAA";
+
+const buffer = Buffer.from(base64, "base64");
+
+console.log(buffer.toString("hex"));
