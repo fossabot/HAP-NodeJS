@@ -5,6 +5,7 @@ import createDebug from 'debug';
 import tweetnacl from 'tweetnacl';
 
 import * as chacha20poly1305 from './chacha20poly1305';
+import {Buffer64} from "./Buffer64";
 
 const debug = createDebug('encryption');
 
@@ -33,8 +34,8 @@ export function generateCurve25519SharedSecKey(priKey: Uint8Array, pubKey: Uint8
 
 //Security Layer Enc/Dec
 
-type Count = {
-  value: any;
+export type Count = {
+  value: bigint;
 }
 
 export function layerEncrypt(data: Buffer, count: Count, key: Buffer) {
@@ -46,7 +47,7 @@ export function layerEncrypt(data: Buffer, count: Count, key: Buffer) {
     leLength.writeUInt16LE(length,0);
 
     var nonce = Buffer.alloc(8);
-    writeUInt64LE(count.value++, nonce, 0);
+    Buffer64.writeBigUInt64LE(nonce, count.value++);
 
     var result_Buffer = Buffer.alloc(length);
     var result_mac = Buffer.alloc(16);
@@ -82,7 +83,7 @@ export function layerDecrypt(packet: Buffer, count: Count, key: Buffer, extraInf
     }
 
     var nonce = Buffer.alloc(8);
-    writeUInt64LE(count.value++, nonce, 0);
+    Buffer64.writeBigUInt64LE(nonce, count.value++);
 
     var result_Buffer = Buffer.alloc(realDataLength);
 

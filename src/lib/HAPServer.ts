@@ -16,6 +16,7 @@ import { Accessory, CharacteristicEvents, Resource } from './Accessory';
 import { CharacteristicData, NodeCallback, PairingsCallback, SessionIdentifier, VoidCallback } from '../types';
 import { EventEmitter } from './EventEmitter';
 import { PairingInformation, PermissionTypes } from "./model/AccessoryInfo";
+import {Count} from "./util/encryption";
 
 const debug = createDebug('HAPServer');
 
@@ -1117,8 +1118,8 @@ export class HAPEncryption {
   publicKey: Buffer;
   sharedSec: Buffer;
   hkdfPairEncKey: Buffer;
-  accessoryToControllerCount: { value: number; };
-  controllerToAccessoryCount: { value: number; };
+  accessoryToControllerCount: Count;
+  controllerToAccessoryCount: Count;
   accessoryToControllerKey: Buffer;
   controllerToAccessoryKey: Buffer;
   extraInfo: Record<string, any>;
@@ -1130,8 +1131,8 @@ export class HAPEncryption {
     this.publicKey = Buffer.alloc(0);
     this.sharedSec = Buffer.alloc(0);
     this.hkdfPairEncKey = Buffer.alloc(0);
-    this.accessoryToControllerCount = { value: 0 };
-    this.controllerToAccessoryCount = { value: 0 };
+    this.accessoryToControllerCount = { value: BigInt(0) };
+    this.controllerToAccessoryCount = { value: BigInt(0) };
     this.accessoryToControllerKey = Buffer.alloc(0);
     this.controllerToAccessoryKey = Buffer.alloc(0);
     this.extraInfo = {};
