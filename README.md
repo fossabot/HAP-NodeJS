@@ -5,6 +5,7 @@
 <a href="https://www.npmjs.com/package/hap-nodejs"><img title="npm version" src="https://badgen.net/npm/v/hap-nodejs" ></a>
 <a href="https://www.npmjs.com/package/hap-nodejs"><img title="npm downloads" src="https://badgen.net/npm/dt/hap-nodejs" ></a>
 <a href="https://github.com/KhaosT/HAP-NodeJS/actions?query=workflow%3A%22Node-CI%22"><img title="npm downloads" src="https://github.com/homebridge/HAP-NodeJS/workflows/Node-CI/badge.svg" ></a>
+<a href="https://app.fossa.io/projects/git%2Bgithub.com%2FSupereg%2FHAP-NodeJS?ref=badge_shield" alt="FOSSA Status"><img src="https://app.fossa.io/api/projects/git%2Bgithub.com%2FSupereg%2FHAP-NodeJS.svg?type=shield"/></a>
 
 </span>
 
@@ -76,3 +77,7 @@ Projects based on HAP-NodeJS
 * [node-red-contrib-homekit](https://github.com/NRCHKB/node-red-contrib-homekit-bridged) - Node-RED nodes to simulate Apple HomeKit devices.
 * [ioBroker.homekit](https://github.com/ioBroker/ioBroker.homekit2) - connect ioBroker to HomeKit.
 * [AccessoryServer](https://github.com/Appyx/AccessoryServer) - HomeKit integration for IR/RF/IP-devices
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FSupereg%2FHAP-NodeJS.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2FSupereg%2FHAP-NodeJS?ref=badge_large)
